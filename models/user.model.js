@@ -13,6 +13,19 @@ const userSchema = new mongoose.Schema(
     posts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
     lastActive: { type: Date, default: Date.now },
+    followTimestamps: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
+    isDisabled: {
+      type: Boolean,
+      default: false,
+    },
+    disabledAt: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );

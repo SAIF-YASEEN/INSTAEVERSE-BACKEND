@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import moment from "moment"; // For timestamp formatting
+import moment from "moment";
 
 const messageSchema = new mongoose.Schema({
   senderId: {
@@ -14,11 +14,24 @@ const messageSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: true,
+    required: false, // Allow null for deleted messages
+  },
+  messageType: {
+    type: String,
+    enum: ["text", "voice"],
+    default: "text",
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false,
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
   },
   timestamp: {
     type: String,
-    default: () => moment().format("MMM D, h:mm A"), // Include date and time
+    default: () => moment().format("MMM D, h:mm A"),
   },
 });
 
