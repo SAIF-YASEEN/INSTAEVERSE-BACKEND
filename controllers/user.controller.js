@@ -189,6 +189,11 @@ export const getSuggestedUsers = async (req, res) => {
   }
 };
 
+let io;
+const setIo = (socketIo) => {
+  io = socketIo;
+};
+
 export const followOrUnfollow = async (req, res) => {
   try {
     const targetUserId = req.params.id;
@@ -225,6 +230,7 @@ export const followOrUnfollow = async (req, res) => {
       );
       await currentUser.save();
       await targetUser.save();
+
       res.status(200).json({
         success: true,
         message: "User unfollowed successfully",
@@ -238,12 +244,32 @@ export const followOrUnfollow = async (req, res) => {
       // Follow
       currentUser.following.push(targetUserId);
       targetUser.followers.push(currentUserId);
+      const followTimestamp = new Date();
       targetUser.followTimestamps.push({
         userId: currentUserId,
-        timestamp: new Date(),
+        timestamp: followTimestamp,
       });
       await currentUser.save();
       await targetUser.save();
+
+      // Emit follow notification to the target user
+      if (io) {
+        io.to(targetUserId).emit("follow", {
+          type: "follow",
+          userId: currentUserId,
+          userDetails: {
+            username: currentUser.username,
+            profilePicture:
+              currentUser.profilePicture ||
+              "https://example.com/default-avatar.jpg",
+          },
+          timestamp: followTimestamp.toISOString(),
+        });
+        console.log(`Backend: Emitted follow event to ${targetUserId}`);
+      } else {
+        console.error("Socket.IO not initialized");
+      }
+
       res.status(200).json({
         success: true,
         message: "User followed successfully",
@@ -255,7 +281,7 @@ export const followOrUnfollow = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Error in followOrUnfollow:", error);
+    console.error("Error in followOrUnfollow:", error.message, error.stack);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -349,5 +375,21 @@ export const removeFollower = async (req, res) => {
       success: false,
       message: "Server error while removing follower",
     });
+  }
+};
+// In userController.js
+export const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId).select("-password");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    console.error("Error in getUserProfile:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };

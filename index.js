@@ -13,6 +13,7 @@ import { Comment } from "./models/comment.model.js";
 import { Conversation } from "./models/conversation.model.js";
 import { User } from "./models/user.model.js";
 import Reaction from "./models/Reaction.js";
+import { getUserProfile } from "./controllers/user.controller.js";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
 // Load environment variables
 dotenv.config();
@@ -55,6 +56,7 @@ const authMiddleware = async (req, res, next) => {
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
+app.get("/api/v1/user/profile/:id", getUserProfile);
 
 // Delete account endpoint
 app.delete("/api/v1/user/delete", authMiddleware, async (req, res) => {
