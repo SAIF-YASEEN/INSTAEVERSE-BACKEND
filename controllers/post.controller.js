@@ -7,43 +7,89 @@ import { getReceiverSocketId, io } from "../socket/socket.js";
 
 export const addNewPost = async (req, res) => {
   try {
-    const { caption } = req.body;
+    const { caption, categories } = req.body;
     const image = req.file;
     const authorId = req.id;
 
-    if (!image) return res.status(400).json({ message: "Image required" });
+    // Validate required fields
+    if (!image) {
+      return res
+        .status(400)
+        .json({ message: "Image is required", success: false });
+    }
+    if (!categories) {
+      return res
+        .status(400)
+        .json({ message: "At least one category is required", success: false });
+    }
 
-    // image upload
+    // Parse and validate categories
+    const categoryArray = categories.split(",").map((cat) => cat.trim());
+    if (categoryArray.length < 1 || categoryArray[0] === "") {
+      return res.status(400).json({
+        message: "At least one valid category is required",
+        success: false,
+      });
+    }
+    if (categoryArray.length > 10) {
+      return res
+        .status(400)
+        .json({ message: "Maximum of 10 categories allowed", success: false });
+    }
+
+    // Optimize image with sharp
     const optimizedImageBuffer = await sharp(image.buffer)
       .resize({ width: 800, height: 800, fit: "inside" })
       .toFormat("jpeg", { quality: 80 })
       .toBuffer();
 
-    // buffer to data uri
+    // Convert buffer to data URI
     const fileUri = `data:image/jpeg;base64,${optimizedImageBuffer.toString(
       "base64"
     )}`;
+
+    // Upload to Cloudinary
     const cloudResponse = await cloudinary.uploader.upload(fileUri);
-    const post = await Post.create({
-      caption,
-      image: cloudResponse.secure_url,
-      author: authorId,
-    });
-    const user = await User.findById(authorId);
-    if (user) {
-      user.posts.push(post._id);
-      await user.save();
+    if (!cloudResponse?.secure_url) {
+      return res.status(500).json({
+        message: "Failed to upload image to Cloudinary",
+        success: false,
+      });
     }
 
+    // Create new post with categories
+    const post = await Post.create({
+      caption: caption || "",
+      image: cloudResponse.secure_url,
+      author: authorId,
+      categories: categoryArray,
+    });
+
+    // Update user's posts array
+    const user = await User.findById(authorId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "User not found", success: false });
+    }
+    user.posts.push(post._id);
+    await user.save();
+
+    // Populate author field (fixed typo)
     await post.populate({ path: "author", select: "-password" });
 
+    // Send success response
     return res.status(201).json({
-      message: "New post added",
+      message: "New post added successfully",
       post,
       success: true,
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error in addNewPost:", error);
+    return res.status(500).json({
+      message: error.message || "Something went wrong while adding the post",
+      success: false,
+    });
   }
 };
 export const getAllPost = async (req, res) => {
@@ -106,14 +152,19 @@ export const likePost = async (req, res) => {
     await post.updateOne({ $addToSet: { likes: likeKrneWalaUserKiId } });
     await post.save();
 
-    // Fetch user details for notification
+    // Fetch user and ensure feed is a flat array
     const user = await User.findById(likeKrneWalaUserKiId).select(
-      "username profilePicture"
+      "username profilePicture feed"
+    );
+
+    // Add post categories to user's feed as individual strings (no nested arrays)
+    await User.updateOne(
+      { _id: likeKrneWalaUserKiId },
+      { $addToSet: { feed: { $each: post.categories } } } // $each ensures flat addition
     );
 
     const postOwnerId = post.author.toString();
     if (postOwnerId !== likeKrneWalaUserKiId) {
-      // Emit a notification event with timestamp and postImage
       const notification = {
         type: "like",
         userId: likeKrneWalaUserKiId,
@@ -123,7 +174,7 @@ export const likePost = async (req, res) => {
             user.profilePicture || "https://example.com/default-avatar.jpg",
         },
         postId,
-        postImage: post.image, // Added post image
+        postImage: post.image,
         message: "Your post was liked",
         timestamp: new Date().toISOString(),
       };
@@ -300,5 +351,46 @@ export const bookmarkPost = async (req, res) => {
     }
   } catch (error) {
     console.log(error);
+  }
+};
+// In postController.js (append this)
+export const updateFeedFromSearch = async (req, res) => {
+  try {
+    const userId = req.id; // From auth middleware
+    const { searchTerm } = req.body;
+
+    if (!searchTerm || typeof searchTerm !== "string") {
+      return res
+        .status(400)
+        .json({ message: "Valid search term required", success: false });
+    }
+
+    // Treat the search term as a single category (no splitting)
+    const trimmedSearchTerm = searchTerm.trim().toLowerCase();
+
+    // Add to user's feed without duplicates
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $addToSet: { feed: trimmedSearchTerm } },
+      { new: true, select: "feed" } // Return updated feed
+    );
+
+    if (!updatedUser) {
+      return res
+        .status(404)
+        .json({ message: "User not found", success: false });
+    }
+
+    return res.status(200).json({
+      message: "Feed updated with search term",
+      feed: updatedUser.feed,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in updateFeedFromSearch:", error);
+    return res.status(500).json({
+      message: "Something went wrong",
+      success: false,
+    });
   }
 };

@@ -26,7 +26,13 @@ const userSchema = new mongoose.Schema(
     disabledAt: {
       type: Date,
     },
+    // New feed field for storing categories
+    feed: {
+      type: [String], // Array of category strings
+      default: [], // Starts empty
+    },
   },
   { timestamps: true }
 );
+
 export const User = mongoose.model("User", userSchema);

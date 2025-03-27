@@ -393,3 +393,19 @@ export const getUserProfile = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+export const getUserFeed = async (req, res) => {
+  try {
+    const userId = req.id; // From isAuthenticated middleware
+    const user = await User.findById(userId).select("feed");
+    if (!user) {
+      return res.status(404).json({ message: "User not found", success: false });
+    }
+    return res.status(200).json({
+      feed: user.feed,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getUserFeed:", error);
+    return res.status(500).json({ message: "Server error", success: false });
+  }
+};

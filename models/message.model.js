@@ -33,6 +33,16 @@ const messageSchema = new mongoose.Schema({
     type: String,
     default: () => moment().format("MMM D, h:mm A"),
   },
+  isEdited: {
+    // Added isEdited field
+    type: Boolean,
+    default: false,
+  },
+  editedAt: {
+    // Optional: track when it was edited
+    type: Date,
+    default: null,
+  },
 });
 
 export const Message = mongoose.model("Message", messageSchema);

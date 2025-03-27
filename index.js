@@ -15,6 +15,7 @@ import { User } from "./models/user.model.js";
 import Reaction from "./models/Reaction.js";
 import { getUserProfile } from "./controllers/user.controller.js";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
+import { fixFeed } from "./utils/db.js";
 // Load environment variables
 dotenv.config();
 
@@ -276,6 +277,68 @@ app.patch("/api/v1/user/profile/username", async (req, res) => {
     console.error(error);
     res.status(500).json({ success: false, message: "Server error" });
   }
+});
+// Edit Message Route
+app.put("/api/v1/message/:messageId", async (req, res) => {
+  const { messageId } = req.params;
+  const { message, userId } = req.body;
+
+  if (!userId) {
+    return res
+      .status(400)
+      .json({ success: false, message: "userId is required" });
+  }
+
+  try {
+    const existingMessage = await Message.findById(messageId);
+    if (!existingMessage) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Message not found" });
+    }
+
+    if (existingMessage.senderId.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only edit your own messages",
+      });
+    }
+
+    existingMessage.message = message;
+    existingMessage.isEdited = true;
+    existingMessage.editedAt = new Date();
+    await existingMessage.save();
+
+    io.emit("message-edited", {
+      messageId: existingMessage._id,
+      newMessage: message,
+      editedAt: existingMessage.editedAt,
+      isEdited: true, // Include isEdited in the socket event
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Message updated successfully",
+      updatedMessage: existingMessage,
+    });
+  } catch (error) {
+    console.error("Error editing message:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: error.message });
+  }
+
+});
+
+fixFeed();
+
+// Socket.IO Connection
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
 });
 // Start server
 server.listen(PORT, () => {

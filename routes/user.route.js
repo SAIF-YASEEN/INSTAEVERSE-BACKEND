@@ -9,6 +9,7 @@ import {
   register,
   getUsersByIds,
   removeFollower,
+  getUserFeed,
 } from "../controllers/user.controller.js";
 import isAuthenticated from "../middlewares/isAuthenticated.js";
 import upload from "../middlewares/multer.js";
@@ -26,5 +27,5 @@ router.route("/suggested").get(isAuthenticated, getSuggestedUsers);
 router.route("/followorunfollow/:id").post(isAuthenticated, followOrUnfollow);
 router.post("/get-users-by-ids", isAuthenticated, getUsersByIds);
 router.post("/remove-follower/:id", removeFollower); // Removed isAuthenticated
-
+router.route("/feed").get(isAuthenticated, getUserFeed);
 export default router;
