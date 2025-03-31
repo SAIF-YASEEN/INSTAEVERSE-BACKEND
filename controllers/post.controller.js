@@ -110,7 +110,7 @@ export const getAllPost = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 export const getUserPost = async (req, res) => {
@@ -135,7 +135,7 @@ export const getUserPost = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 export const likePost = async (req, res) => {
@@ -181,10 +181,10 @@ export const likePost = async (req, res) => {
       const postOwnerSocketId = getReceiverSocketId(postOwnerId);
       if (io && postOwnerSocketId) {
         io.to(postOwnerSocketId).emit("notification", notification);
-        console.log(
-          `Backend: Emitted notification to ${postOwnerId}`,
-          notification
-        );
+        // console.log(
+        //   `Backend: Emitted notification to ${postOwnerId}`,
+        //   notification
+        // );
       } else {
         console.warn("Socket.IO not initialized or no socket for post owner");
       }
@@ -265,7 +265,7 @@ export const addComment = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 export const getCommentsOfPost = async (req, res) => {
@@ -284,7 +284,7 @@ export const getCommentsOfPost = async (req, res) => {
 
     return res.status(200).json({ success: true, comments });
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 export const deletePost = async (req, res) => {
@@ -318,7 +318,7 @@ export const deletePost = async (req, res) => {
       message: "Post deleted",
     });
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 export const bookmarkPost = async (req, res) => {
@@ -350,7 +350,7 @@ export const bookmarkPost = async (req, res) => {
         .json({ type: "saved", message: "Post bookmarked", success: true });
     }
   } catch (error) {
-    console.log(error);
+    // console.log(error);
   }
 };
 // In postController.js (append this)

@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema(
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     posts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
+    isPrivate: { type: Boolean, default: false },
     lastActive: { type: Date, default: Date.now },
     followTimestamps: [
       {
@@ -19,18 +20,10 @@ const userSchema = new mongoose.Schema(
         timestamp: { type: Date, default: Date.now },
       },
     ],
-    isDisabled: {
-      type: Boolean,
-      default: false,
-    },
-    disabledAt: {
-      type: Date,
-    },
-    // New feed field for storing categories
-    feed: {
-      type: [String], // Array of category strings
-      default: [], // Starts empty
-    },
+    isDisabled: { type: Boolean, default: false },
+    disabledAt: { type: Date },
+    feed: { type: [String], default: [] },
+    activityStatus: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

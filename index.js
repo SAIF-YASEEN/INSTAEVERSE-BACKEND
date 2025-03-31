@@ -172,18 +172,18 @@ app.put("/api/reactions/:messageId", async (req, res) => {
 app.delete("/api/reactions/:messageId/:userId", async (req, res) => {
   try {
     const { messageId, userId } = req.params;
-    console.log(
-      `Attempting to delete reaction - messageId: ${messageId}, userId: ${userId}`
-    );
+    // console.log(
+    //   `Attempting to delete reaction - messageId: ${messageId}, userId: ${userId}`
+    // );
 
     const reaction = await Reaction.findOneAndDelete({ messageId, userId });
 
     if (!reaction) {
-      console.log("Reaction not found in database");
+      // console.log("Reaction not found in database");
       return res.status(404).json({ error: "Reaction not found" });
     }
 
-    console.log("Reaction deleted successfully:", reaction);
+    // console.log("Reaction deleted successfully:", reaction);
     io.emit("reaction-deleted", { messageId, userId });
     res.status(204).send();
   } catch (error) {
@@ -199,19 +199,19 @@ app.delete("/api/v1/message/:messageId", async (req, res) => {
     const messageId = req.params.messageId;
 
     if (!userId) {
-      console.log("No userId provided in request");
+      // console.log("No userId provided in request");
       return res
         .status(400)
         .json({ success: false, message: "User ID is required" });
     }
 
-    console.log(`DELETE /api/v1/message/${messageId} called by user ${userId}`);
+    // console.log(`DELETE /api/v1/message/${messageId} called by user ${userId}`);
 
     const message = await Message.findOne({ _id: messageId, senderId: userId });
     if (!message) {
-      console.log(
-        `Message ${messageId} not found or not owned by user ${userId}`
-      );
+      // console.log(
+      //   `Message ${messageId} not found or not owned by user ${userId}`
+      // );
       return res.status(404).json({
         success: false,
         message: "Message not found or not authorized",
@@ -224,7 +224,7 @@ app.delete("/api/v1/message/:messageId", async (req, res) => {
       { $pull: { messages: messageId } }
     );
 
-    console.log(`Message ${messageId} deleted by user ${userId}`);
+    // console.log(`Message ${messageId} deleted by user ${userId}`);
     io.emit("message-deleted", { messageId }); // Notify via socket
     res.status(200).json({ success: true, message: "Message deleted" });
   } catch (error) {
@@ -327,21 +327,121 @@ app.put("/api/v1/message/:messageId", async (req, res) => {
       .status(500)
       .json({ success: false, message: "Server error", error: error.message });
   }
-
+});
+// Update activity status
+app.put("/api/v1/users/update-activity-status", async (req, res) => {
+  try {
+    const { userId, activityStatus } = req.body;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { activityStatus },
+      { new: true }
+    );
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
+// Update last active
+app.put("/api/v1/users/update-last-active", async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { lastActive: new Date() },
+      { new: true }
+    );
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Get online users
+app.get("/api/v1/users/online-users", async (req, res) => {
+  try {
+    const threshold = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes ago
+    const onlineUsers = await User.find({
+      activityStatus: true,
+      lastActive: { $gte: threshold },
+    }).select("_id");
+    res.status(200).json({
+      success: true,
+      onlineUsers: onlineUsers.map((user) => user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 fixFeed();
 
+app.put("/api/v1/users/update-privacy", async (req, res) => {
+  try {
+    const { userId, isPrivate } = req.body;
+
+    // Validate input
+    if (!userId || typeof isPrivate !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request: userId and isPrivate (boolean) are required",
+      });
+    }
+
+    console.log("Updating privacy for user:", userId, "to:", isPrivate);
+
+    // Find and update user
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Update the field
+    user.isPrivate = isPrivate;
+    const updatedUser = await user.save();
+
+    console.log("Updated user:", updatedUser);
+
+    res.status(200).json({
+      success: true,
+      message: `Account ${
+        isPrivate ? "set to private" : "set to public"
+      } successfully`,
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error in updatePrivacy:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating privacy settings",
+      error: error.message,
+    });
+  }
+});
 // Socket.IO Connection
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  // console.log("New client connected:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    // console.log("Client disconnected:", socket.id);
   });
 });
 // Start server
 server.listen(PORT, () => {
   connectDB();
-  console.log(`Server listening at port ${PORT}`);
+  // console.log(`Server listening at port ${PORT}`);
 });

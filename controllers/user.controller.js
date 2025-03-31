@@ -202,7 +202,7 @@ export const followOrUnfollow = async (req, res) => {
     if (!currentUserId) {
       return res.status(400).json({
         success: false,
-        message: "Current user ID is required in request body",
+        message: "Current user ID is required",
       });
     }
 
@@ -218,7 +218,6 @@ export const followOrUnfollow = async (req, res) => {
     const isFollowing = currentUser.following.includes(targetUserId);
 
     if (isFollowing) {
-      // Unfollow
       currentUser.following = currentUser.following.filter(
         (id) => id.toString() !== targetUserId
       );
@@ -231,7 +230,7 @@ export const followOrUnfollow = async (req, res) => {
       await currentUser.save();
       await targetUser.save();
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: "User unfollowed successfully",
         currentUser: { following: currentUser.following },
@@ -241,7 +240,6 @@ export const followOrUnfollow = async (req, res) => {
         },
       });
     } else {
-      // Follow
       currentUser.following.push(targetUserId);
       targetUser.followers.push(currentUserId);
       const followTimestamp = new Date();
@@ -252,9 +250,8 @@ export const followOrUnfollow = async (req, res) => {
       await currentUser.save();
       await targetUser.save();
 
-      // Emit follow notification to the target user
       if (io) {
-        io.to(targetUserId).emit("follow", {
+        const followData = {
           type: "follow",
           userId: currentUserId,
           userDetails: {
@@ -264,13 +261,14 @@ export const followOrUnfollow = async (req, res) => {
               "https://example.com/default-avatar.jpg",
           },
           timestamp: followTimestamp.toISOString(),
-        });
-        console.log(`Backend: Emitted follow event to ${targetUserId}`);
+        };
+        io.to(targetUserId).emit("follow", followData);
+        console.log(`Emitted follow event to ${targetUserId}:`, followData);
       } else {
         console.error("Socket.IO not initialized");
       }
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: "User followed successfully",
         currentUser: { following: currentUser.following },
@@ -281,8 +279,8 @@ export const followOrUnfollow = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Error in followOrUnfollow:", error.message, error.stack);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error("Follow/Unfollow Error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 export const getUsersByIds = async (req, res) => {
@@ -378,27 +376,29 @@ export const removeFollower = async (req, res) => {
   }
 };
 // In userController.js
-export const getUserProfile = async (req, res) => {
-  try {
-    const userId = req.params.id;
-    const user = await User.findById(userId).select("-password");
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-    res.status(200).json({ success: true, user });
-  } catch (error) {
-    console.error("Error in getUserProfile:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-};
+// export const getUserProfile = async (req, res) => {
+//   try {
+//     const userId = req.params.id;
+//     const user = await User.findById(userId).select("-password");
+//     if (!user) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "User not found" });
+//     }
+//     res.status(200).json({ success: true, user });
+//   } catch (error) {
+//     console.error("Error in getUserProfile:", error);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
 export const getUserFeed = async (req, res) => {
   try {
     const userId = req.id; // From isAuthenticated middleware
     const user = await User.findById(userId).select("feed");
     if (!user) {
-      return res.status(404).json({ message: "User not found", success: false });
+      return res
+        .status(404)
+        .json({ message: "User not found", success: false });
     }
     return res.status(200).json({
       feed: user.feed,
@@ -407,5 +407,88 @@ export const getUserFeed = async (req, res) => {
   } catch (error) {
     console.error("Error in getUserFeed:", error);
     return res.status(500).json({ message: "Server error", success: false });
+  }
+};
+export const updatePrivacy = async (req, res) => {
+  try {
+    const { userId, isPrivate } = req.body;
+
+    // Validate input
+    if (!userId || typeof isPrivate !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request: userId and isPrivate (boolean) are required",
+      });
+    }
+
+    console.log("Updating privacy for user:", userId, "to:", isPrivate);
+
+    // Find and update user
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Update the field
+    user.isPrivate = isPrivate;
+    const updatedUser = await user.save();
+
+    console.log("Updated user:", updatedUser);
+
+    res.status(200).json({
+      success: true,
+      message: `Account ${
+        isPrivate ? "set to private" : "set to public"
+      } successfully`,
+      data: updatedUser,
+    });
+  } catch (error) {
+    console.error("Error in updatePrivacy:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating privacy settings",
+      error: error.message,
+    });
+  }
+};
+
+// Get user profile
+export const getUserProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id)
+      .select("-password")
+      .populate("followers", "username profilePicture isPrivate")
+      .populate("following", "username profilePicture isPrivate");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const posts = await Post.find({ user: id })
+      .sort({ createdAt: -1 })
+      .populate("user", "username profilePicture");
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user,
+        posts,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching profile",
+    });
   }
 };

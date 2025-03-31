@@ -23,13 +23,13 @@ export const getMessage = async (req, res) => {
       _id: { $in: conversation.messages },
     }).populate("senderId", "username");
 
-    console.log("Fetched messages from DB:", messages);
+    // console.log("Fetched messages from DB:", messages);
     return res.status(200).json({
       success: true,
       messages: messages,
     });
   } catch (error) {
-    console.error("Error fetching messages:", error);
+    // console.error("Error fetching messages:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error.",
