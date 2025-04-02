@@ -20,11 +20,19 @@ const userSchema = new mongoose.Schema(
         timestamp: { type: Date, default: Date.now },
       },
     ],
+    chatUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: [],
+      },
+    ],
     isDisabled: { type: Boolean, default: false },
     disabledAt: { type: Date },
     feed: { type: [String], default: [] },
     activityStatus: { type: Boolean, default: true },
   },
+
   { timestamps: true }
 );
 

@@ -7,12 +7,15 @@ import {
   login,
   logout,
   register,
+  addChatUser,
+  getChatUsers,
   getUsersByIds,
   removeFollower,
   getUserFeed,
 } from "../controllers/user.controller.js";
 import isAuthenticated from "../middlewares/isAuthenticated.js";
 import upload from "../middlewares/multer.js";
+
 import { getFollowNotifications } from "../controllers/followNotificationsController.js"; // Import the new controller
 const router = express.Router();
 
@@ -31,4 +34,6 @@ router.route("/feed").get(isAuthenticated, getUserFeed);
 router
   .route("/follow-notifications/:userId")
   .get(isAuthenticated, getFollowNotifications); // New route
+router.route("/chat-user/add").post(isAuthenticated, addChatUser);
+router.route("/chat-users").get(isAuthenticated, getChatUsers);
 export default router;

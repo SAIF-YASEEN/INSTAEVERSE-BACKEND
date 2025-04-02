@@ -492,3 +492,80 @@ export const getUserProfile = async (req, res) => {
     });
   }
 };
+
+// controllers/user.controller.js
+// ... existing imports ...
+
+export const addChatUser = async (req, res) => {
+  try {
+    const { userId, targetUserId } = req.body;
+
+    if (!userId || !targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Both user IDs are required",
+      });
+    }
+
+    const user = await User.findById(userId);
+    const targetUser = await User.findById(targetUserId);
+
+    if (!user || !targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (user.chatUsers.includes(targetUserId)) {
+      return res.status(200).json({
+        success: true,
+        message: "User already in chat list",
+      });
+    }
+
+    user.chatUsers.push(targetUserId);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "User added to chat list",
+      chatUsers: user.chatUsers,
+    });
+  } catch (error) {
+    console.error("Error adding chat user:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+export const getChatUsers = async (req, res) => {
+  try {
+    const userId = req.id; // from isAuthenticated middleware
+
+    const user = await User.findById(userId)
+      .populate("chatUsers", "username profilePicture activityStatus")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      chatUsers: user.chatUsers,
+    });
+  } catch (error) {
+    console.error("Error getting chat users:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+

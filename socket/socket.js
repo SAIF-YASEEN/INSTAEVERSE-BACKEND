@@ -20,8 +20,9 @@ const userSocketMap = {}; // This map stores socket IDs corresponding to user ID
 export const getReceiverSocketId = (receiverId) => userSocketMap[receiverId];
 
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  // console.log("A user connected:", socket.id);
 
+  // Handle user connection and online status
   const userId = socket.handshake.query.userId;
   if (userId) {
     userSocketMap[userId] = socket.id; // Map the user ID to the socket ID
@@ -30,9 +31,63 @@ io.on("connection", (socket) => {
   // Emit the list of online users to all connected clients
   io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
+  // Handle message-edited event
+  // socket.js
+  socket.on("message-edited", (data) => {
+    console.log("Message edited:", data); // Debug log
+    const { messageId, newMessage, editedAt, isEdited, senderId, receiverId } =
+      data;
+
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    const senderSocketId = getReceiverSocketId(senderId); // Ensure sender gets the update too
+
+    // Emit to receiver
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("message-edited", {
+        messageId,
+        newMessage,
+        editedAt,
+        isEdited,
+        senderId,
+        receiverId,
+      });
+    }
+
+    // Emit to sender (ensure sender's UI updates too)
+    if (senderSocketId && senderSocketId !== socket.id) {
+      io.to(senderSocketId).emit("message-edited", {
+        messageId,
+        newMessage,
+        editedAt,
+        isEdited,
+        senderId,
+        receiverId,
+      });
+    }
+
+    // Emit back to the sender's current socket (in case senderSocketId differs)
+    io.to(socket.id).emit("message-edited", {
+      messageId,
+      newMessage,
+      editedAt,
+      isEdited,
+      senderId,
+      receiverId,
+    });
+  });
+
+  // Existing message-seen event handler
+  socket.on("message-seen", (data) => {
+    // Broadcast to the specific user whose messages were viewed
+    socket.to(data.viewedUserId).emit("message-seen", {
+      viewerUsername: data.viewerUsername,
+      viewedUserId: data.viewedUserId,
+    });
+  });
+
   // Handle disconnection
   socket.on("disconnect", () => {
-    console.log("A user disconnected:", socket.id);
+    // console.log("A user disconnected:", socket.id);
     if (userId) {
       delete userSocketMap[userId]; // Remove the user from the map
     }
