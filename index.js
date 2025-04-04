@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import connectDB from "./utils/db.js";
 import userRoute from "./routes/user.route.js";
+import chatRoutes from "./routes/chatRoutes.js";
 import postRoute from "./routes/post.route.js";
 import messageRoute from "./routes/message.route.js";
 import { app, server, io } from "./socket/socket.js"; // Ensure io is exported from socket.js
@@ -57,8 +58,49 @@ const authMiddleware = async (req, res, next) => {
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
+app.use("/api/v1", chatRoutes);
 app.get("/api/v1/user/profile/:id", getUserProfile);
+app.delete("/api/v1/conversation/:userId/user-messages", async (req, res) => {
+  try {
+    // Extract current user ID from request body (or headers, if preferred)
+    const userId = req.body.userId; // Assuming userId is sent in the request body
+    const otherUserId = req.params.userId;
 
+    // Validate userId and otherUserId
+    if (!userId || !otherUserId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing user IDs" });
+    }
+
+    if (userId === otherUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete messages with yourself",
+      });
+    }
+
+    // Delete only messages sent by the current user to the specified other user
+    const result = await Message.deleteMany({
+      senderId: userId, // Only delete messages where the current user is the sender
+      receiverId: otherUserId,
+    });
+
+    if (result.deletedCount === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "No messages found to delete" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Chat messages deleted for the current user",
+    });
+  } catch (error) {
+    console.error("Error deleting user messages:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 // Delete account endpoint
 app.delete("/api/v1/user/delete", authMiddleware, async (req, res) => {
   try {
@@ -443,5 +485,5 @@ io.on("connection", (socket) => {
 // Start server
 server.listen(PORT, () => {
   connectDB();
-  // console.log(`Server listening at port ${PORT}`);
+  console.log(`Server listening at port ${PORT}`);
 });

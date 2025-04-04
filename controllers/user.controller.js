@@ -318,7 +318,53 @@ export const getUsersByIds = async (req, res) => {
     });
   }
 };
+export const getLikesOfPost = async (req, res) => {
+  try {
+    const { postId } = req.body;
 
+    if (!postId) {
+      return res.status(400).json({
+        success: false,
+        message: "No post ID provided",
+      });
+    }
+
+    // Assuming you have a Post model with likes field containing user IDs
+    const post = await Post.findById(postId).select("likes").lean();
+
+    if (!post) {
+      return res.status(404).json({
+        success: false,
+        message: "Post not found",
+      });
+    }
+
+    if (!post.likes || post.likes.length === 0) {
+      return res.status(200).json({
+        success: true,
+        users: [],
+      });
+    }
+
+    // Fetch users who liked the post
+    const users = await User.find({ _id: { $in: post.likes } })
+      .select("_id username profilePicture")
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      users,
+    });
+  } catch (error) {
+    console.error("Error in getLikesOfPost:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching likers",
+    });
+  }
+};
+
+// In your router file
 export const removeFollower = async (req, res) => {
   try {
     const followerId = req.params.id;
@@ -568,4 +614,3 @@ export const getChatUsers = async (req, res) => {
     });
   }
 };
-
