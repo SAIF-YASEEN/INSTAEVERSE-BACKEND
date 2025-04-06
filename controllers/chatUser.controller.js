@@ -4,12 +4,26 @@ import { User } from "../models/user.model.js";
 // Add a chat user
 export const addChatUser = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId, currentUserId } = req.body;
 
     if (!userId) {
       return res.status(400).json({
         success: false,
         message: "User ID is required",
+      });
+    }
+
+    if (!currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Current user ID is required",
+      });
+    }
+
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot add yourself to chat list",
       });
     }
 
@@ -45,16 +59,29 @@ export const addChatUser = async (req, res) => {
     });
   }
 };
+
 // Get chat users
 export const getChatUsers = async (req, res) => {
   try {
+    const { currentUserId } = req.query; // Use query param for currentUserId
+
+    if (!currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Current user ID is required",
+      });
+    }
+
     const chatUsers = await ChatUser.find()
       .populate("userId", "username profilePicture activityStatus")
       .lean();
 
-    // Filter out chatUsers with invalid (null) userId references and format the data
     const formattedChatUsers = chatUsers
-      .filter((chatUser) => chatUser.userId !== null) // Skip entries with null userId
+      .filter(
+        (chatUser) =>
+          chatUser.userId !== null &&
+          chatUser.userId._id.toString() !== currentUserId.toString()
+      )
       .map((chatUser) => ({
         _id: chatUser.userId._id,
         username: chatUser.userId.username,
@@ -82,10 +109,17 @@ export const deleteChatUser = async (req, res) => {
     const { userId } = req.params;
     const { currentUserId } = req.body;
 
-    if (!userId || !currentUserId) {
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "User ID and current user ID are required",
+        message: "User ID is required",
+      });
+    }
+
+    if (!currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "Current user ID is required",
       });
     }
 
@@ -117,7 +151,7 @@ export const deleteChatUser = async (req, res) => {
   }
 };
 
-// Add initial chat users (for setup)
+// Add initial chat users (unchanged)
 export const addInitialChatUsers = async () => {
   try {
     const existingChatUsers = await ChatUser.countDocuments();

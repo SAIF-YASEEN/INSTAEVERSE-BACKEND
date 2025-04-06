@@ -138,36 +138,40 @@ export const getUserPost = async (req, res) => {
     // console.log(error);
   }
 };
+// post.controller.js
+
 export const likePost = async (req, res) => {
   try {
-    const likeKrneWalaUserKiId = req.id;
+    const userId = req.id; // Renamed for consistency
     const postId = req.params.id;
     const post = await Post.findById(postId);
-    if (!post)
+    if (!post) {
       return res
         .status(404)
         .json({ message: "Post not found", success: false });
+    }
 
-    // Like logic
-    await post.updateOne({ $addToSet: { likes: likeKrneWalaUserKiId } });
+    // Remove from dislikes if present, add to likes
+    await post.updateOne({
+      $pull: { dislikes: userId }, // Remove from dislikes
+      $addToSet: { likes: userId }, // Add to likes if not already present
+    });
     await post.save();
 
-    // Fetch user and ensure feed is a flat array
-    const user = await User.findById(likeKrneWalaUserKiId).select(
+    // Fetch user and update feed
+    const user = await User.findById(userId).select(
       "username profilePicture feed"
     );
-
-    // Add post categories to user's feed as individual strings (no nested arrays)
     await User.updateOne(
-      { _id: likeKrneWalaUserKiId },
-      { $addToSet: { feed: { $each: post.categories } } } // $each ensures flat addition
+      { _id: userId },
+      { $addToSet: { feed: { $each: post.categories } } }
     );
 
     const postOwnerId = post.author.toString();
-    if (postOwnerId !== likeKrneWalaUserKiId) {
+    if (postOwnerId !== userId) {
       const notification = {
         type: "like",
-        userId: likeKrneWalaUserKiId,
+        userId: userId,
         userDetails: {
           username: user.username,
           profilePicture:
@@ -181,10 +185,6 @@ export const likePost = async (req, res) => {
       const postOwnerSocketId = getReceiverSocketId(postOwnerId);
       if (io && postOwnerSocketId) {
         io.to(postOwnerSocketId).emit("notification", notification);
-        // console.log(
-        //   `Backend: Emitted notification to ${postOwnerId}`,
-        //   notification
-        // );
       } else {
         console.warn("Socket.IO not initialized or no socket for post owner");
       }
@@ -196,40 +196,66 @@ export const likePost = async (req, res) => {
     return res.status(500).json({ message: "Server error", success: false });
   }
 };
+
 export const dislikePost = async (req, res) => {
   try {
-    const likeKrneWalaUserKiId = req.id;
+    const userId = req.id;
     const postId = req.params.id;
     const post = await Post.findById(postId);
-    if (!post)
+    if (!post) {
       return res
         .status(404)
         .json({ message: "Post not found", success: false });
+    }
 
-    // like logic started
-    await post.updateOne({ $pull: { likes: likeKrneWalaUserKiId } });
+    // Remove from likes if present, add to dislikes
+    await post.updateOne({
+      $pull: { likes: userId }, // Remove from likes
+      $addToSet: { dislikes: userId }, // Add to dislikes if not already present
+    });
     await post.save();
 
-    // implement socket io for real time notification
-    const user = await User.findById(likeKrneWalaUserKiId).select(
-      "username profilePicture"
-    );
+    const user = await User.findById(userId).select("username profilePicture");
     const postOwnerId = post.author.toString();
-    if (postOwnerId !== likeKrneWalaUserKiId) {
-      // emit a notification event
+    if (postOwnerId !== userId) {
       const notification = {
         type: "dislike",
-        userId: likeKrneWalaUserKiId,
+        userId: userId,
         userDetails: user,
         postId,
-        message: "Your post was liked",
+        message: "Your post was disliked",
+        timestamp: new Date().toISOString(),
       };
       const postOwnerSocketId = getReceiverSocketId(postOwnerId);
-      io.to(postOwnerSocketId).emit("notification", notification);
+      if (io && postOwnerSocketId) {
+        io.to(postOwnerSocketId).emit("notification", notification);
+      }
     }
 
     return res.status(200).json({ message: "Post disliked", success: true });
-  } catch (error) {}
+  } catch (error) {
+    console.error("Error in dislikePost:", error.message);
+    return res.status(500).json({ message: "Server error", success: false });
+  }
+};
+
+export const getDislikesOfPost = async (req, res) => {
+  try {
+    const { postId } = req.body; // Getting postId from body
+    const post = await Post.findById(postId).populate(
+      "dislikes",
+      "username profilePicture"
+    );
+    if (!post) {
+      return res
+        .status(404)
+        .json({ message: "Post not found", success: false });
+    }
+    return res.status(200).json({ users: post.dislikes, success: true });
+  } catch (error) {
+    console.error("Error in getDislikesOfPost:", error);
+    return res.status(500).json({ message: "Server error", success: false });
+  }
 };
 export const addComment = async (req, res) => {
   try {

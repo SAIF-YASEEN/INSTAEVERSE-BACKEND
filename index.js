@@ -58,7 +58,8 @@ const authMiddleware = async (req, res, next) => {
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
-app.use("/api/v1", chatRoutes);
+app.use("/api/v1/user/chat-user", chatRoutes);
+
 app.get("/api/v1/user/profile/:id", getUserProfile);
 app.delete("/api/v1/conversation/:userId/user-messages", async (req, res) => {
   try {
@@ -101,6 +102,41 @@ app.delete("/api/v1/conversation/:userId/user-messages", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
+app.get("/api/v1/post/liked-posts/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    // Verify user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Find posts where the user's ID is in the likes array
+    const likedPosts = await Post.find({ likes: userId })
+      .populate("author", "username profilePicture")
+      .sort({ createdAt: -1 }); // Sort by most recent first
+
+    res.status(200).json({
+      success: true,
+      posts: likedPosts,
+      count: likedPosts.length,
+    });
+  } catch (error) {
+    console.error("Error fetching liked posts:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching liked posts",
+      error: error.message,
+    });
+  }
+});
+// Get liked posts for a user
+
 // Delete account endpoint
 app.delete("/api/v1/user/delete", authMiddleware, async (req, res) => {
   try {

@@ -142,11 +142,24 @@ export const sendMessage = async (req, res) => {
     conversation.messages.push(newMessage._id);
     await conversation.save();
 
+    // Fetch sender's username
+    const sender = await User.findById(senderId).select("username");
+    const senderUsername = sender ? sender.username : "Unknown";
+
+    // Add senderUsername to the newMessage object
+    const messageWithUsername = {
+      ...newMessage._doc, // Spread the document properties
+      senderUsername, // Add the username
+    };
+
     const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", newMessage);
+      io.to(receiverSocketId).emit("newMessage", messageWithUsername);
     }
-    io.to(getReceiverSocketId(senderId)).emit("newMessage", newMessage);
+    io.to(getReceiverSocketId(senderId)).emit(
+      "newMessage",
+      messageWithUsername
+    );
 
     return res.status(201).json({
       success: true,
@@ -161,4 +174,3 @@ export const sendMessage = async (req, res) => {
     });
   }
 };
-

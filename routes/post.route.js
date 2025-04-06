@@ -10,6 +10,7 @@ import {
   getAllPost,
   getCommentsOfPost,
   getUserPost,
+  getDislikesOfPost,
   likePost,
   updateFeedFromSearch,
 } from "../controllers/post.controller.js";
@@ -27,5 +28,7 @@ router.route("/:id/comment").post(isAuthenticated, addComment);
 router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
 router.route("/delete/:id").delete(isAuthenticated, deletePost);
 router.route("/:id/bookmark").get(isAuthenticated, bookmarkPost);
-router.post("/update-feed", updateFeedFromSearch);
+// In post.router.js
+router.route("/:id/dislikes").post(isAuthenticated, getDislikesOfPost); // Changed from .get to .postrouter.post("/update-feed", updateFeedFromSearch);
+
 export default router;
