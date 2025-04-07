@@ -1,22 +1,14 @@
-import { ChatUser } from "../models/ChatUser.model.js";
 import { User } from "../models/user.model.js";
 
-// Add a chat user
+// Add a user to the current user's chat list
 export const addChatUser = async (req, res) => {
   try {
     const { userId, currentUserId } = req.body;
 
-    if (!userId) {
+    if (!userId || !currentUserId) {
       return res.status(400).json({
         success: false,
-        message: "User ID is required",
-      });
-    }
-
-    if (!currentUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "Current user ID is required",
+        message: "User ID and Current User ID are required",
       });
     }
 
@@ -27,29 +19,38 @@ export const addChatUser = async (req, res) => {
       });
     }
 
-    const userExists = await User.findById(userId);
-    if (!userExists) {
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
       return res.status(404).json({
         success: false,
         message: "User not found",
       });
     }
 
-    const existingChatUser = await ChatUser.findOne({ userId });
-    if (existingChatUser) {
-      return res.status(200).json({
-        success: true,
-        message: "User already in chat list",
-        chatUser: existingChatUser,
+    const currentUser = await User.findById(currentUserId);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Current user not found",
       });
     }
 
-    const chatUser = await ChatUser.create({ userId });
+    // Check if user is already in chat list
+    if (currentUser.chatUsers.includes(userId)) {
+      return res.status(200).json({
+        success: true,
+        message: "User already in your chat list",
+      });
+    }
+
+    // Add user to chat list
+    currentUser.chatUsers.push(userId);
+    await currentUser.save();
 
     return res.status(201).json({
       success: true,
       message: "User added to chat list",
-      chatUser,
+      chatUser: { _id: userId },
     });
   } catch (error) {
     console.error("Error adding chat user:", error);
@@ -60,10 +61,10 @@ export const addChatUser = async (req, res) => {
   }
 };
 
-// Get chat users
+// Get the current user's chat list
 export const getChatUsers = async (req, res) => {
   try {
-    const { currentUserId } = req.query; // Use query param for currentUserId
+    const { currentUserId } = req.query;
 
     if (!currentUserId) {
       return res.status(400).json({
@@ -72,23 +73,24 @@ export const getChatUsers = async (req, res) => {
       });
     }
 
-    const chatUsers = await ChatUser.find()
-      .populate("userId", "username profilePicture activityStatus")
-      .lean();
+    const user = await User.findById(currentUserId).populate(
+      "chatUsers",
+      "username profilePicture activityStatus"
+    );
 
-    const formattedChatUsers = chatUsers
-      .filter(
-        (chatUser) =>
-          chatUser.userId !== null &&
-          chatUser.userId._id.toString() !== currentUserId.toString()
-      )
-      .map((chatUser) => ({
-        _id: chatUser.userId._id,
-        username: chatUser.userId.username,
-        profilePicture: chatUser.userId.profilePicture,
-        activityStatus: chatUser.userId.activityStatus,
-        addedAt: chatUser.addedAt,
-      }));
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const formattedChatUsers = user.chatUsers.map((chatUser) => ({
+      _id: chatUser._id,
+      username: chatUser.username,
+      profilePicture: chatUser.profilePicture,
+      activityStatus: chatUser.activityStatus,
+    }));
 
     return res.status(200).json({
       success: true,
@@ -103,40 +105,37 @@ export const getChatUsers = async (req, res) => {
   }
 };
 
-// Delete a chat user
+// Optionally, add a delete endpoint if needed
 export const deleteChatUser = async (req, res) => {
   try {
     const { userId } = req.params;
     const { currentUserId } = req.body;
 
-    if (!userId) {
+    if (!userId || !currentUserId) {
       return res.status(400).json({
         success: false,
-        message: "User ID is required",
+        message: "User ID and Current User ID are required",
       });
     }
 
-    if (!currentUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "Current user ID is required",
-      });
-    }
-
-    if (userId === currentUserId) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete yourself from chat list",
-      });
-    }
-
-    const chatUser = await ChatUser.findOneAndDelete({ userId });
-    if (!chatUser) {
+    const currentUser = await User.findById(currentUserId);
+    if (!currentUser) {
       return res.status(404).json({
         success: false,
-        message: "User not found in chat list",
+        message: "Current user not found",
       });
     }
+
+    const index = currentUser.chatUsers.indexOf(userId);
+    if (index === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found in your chat list",
+      });
+    }
+
+    currentUser.chatUsers.splice(index, 1);
+    await currentUser.save();
 
     return res.status(200).json({
       success: true,
@@ -148,23 +147,5 @@ export const deleteChatUser = async (req, res) => {
       success: false,
       message: "Server error",
     });
-  }
-};
-
-// Add initial chat users (unchanged)
-export const addInitialChatUsers = async () => {
-  try {
-    const existingChatUsers = await ChatUser.countDocuments();
-    if (existingChatUsers > 0) return;
-
-    const users = await User.find().limit(20);
-    const chatUserPromises = users.map((user) =>
-      ChatUser.create({ userId: user._id })
-    );
-
-    await Promise.all(chatUserPromises);
-    console.log("Initial chat users added successfully");
-  } catch (error) {
-    console.error("Error adding initial chat users:", error);
   }
 };

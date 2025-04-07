@@ -95,7 +95,6 @@ export const deleteMessage = async (req, res) => {
     });
   }
 };
-
 export const sendMessage = async (req, res) => {
   try {
     const senderId = req.id;
@@ -142,24 +141,31 @@ export const sendMessage = async (req, res) => {
     conversation.messages.push(newMessage._id);
     await conversation.save();
 
-    // Fetch sender's username
-    const sender = await User.findById(senderId).select("username");
+    // Fetch sender's username and avatar
+    const sender = await User.findById(senderId).select("username avatar");
     const senderUsername = sender ? sender.username : "Unknown";
+    const senderAvatar =
+      sender && sender.avatar
+        ? sender.avatar
+        : "https://via.placeholder.com/40";
 
-    // Add senderUsername to the newMessage object
-    const messageWithUsername = {
-      ...newMessage._doc, // Spread the document properties
-      senderUsername, // Add the username
+    // Add senderUsername and senderAvatar to the newMessage object
+    const messageWithDetails = {
+      ...newMessage._doc,
+      senderUsername,
+      senderAvatar,
     };
 
     const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", messageWithUsername);
+      console.log("Emitting newMessage to receiver:", messageWithDetails);
+      io.to(receiverSocketId).emit("newMessage", messageWithDetails);
     }
-    io.to(getReceiverSocketId(senderId)).emit(
-      "newMessage",
-      messageWithUsername
-    );
+    const senderSocketId = getReceiverSocketId(senderId);
+    if (senderSocketId) {
+      console.log("Emitting newMessage to sender:", messageWithDetails);
+      io.to(senderSocketId).emit("newMessage", messageWithDetails);
+    }
 
     return res.status(201).json({
       success: true,

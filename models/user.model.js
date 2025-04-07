@@ -32,7 +32,6 @@ const userSchema = new mongoose.Schema(
     feed: { type: [String], default: [] },
     activityStatus: { type: Boolean, default: true },
   },
-
   { timestamps: true }
 );
 
