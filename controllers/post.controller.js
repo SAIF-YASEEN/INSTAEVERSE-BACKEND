@@ -24,8 +24,11 @@ export const addNewPost = async (req, res) => {
     }
 
     // Parse and validate categories
-    const categoryArray = categories.split(",").map((cat) => cat.trim());
-    if (categoryArray.length < 1 || categoryArray[0] === "") {
+    const categoryArray = categories
+      .split(",")
+      .map((cat) => cat.trim())
+      .filter((cat) => cat !== "");
+    if (categoryArray.length < 1) {
       return res.status(400).json({
         message: "At least one valid category is required",
         success: false,
@@ -37,9 +40,24 @@ export const addNewPost = async (req, res) => {
         .json({ message: "Maximum of 10 categories allowed", success: false });
     }
 
+    // Validate caption length
+    if (caption && caption.length > 500) {
+      return res
+        .status(400)
+        .json({
+          message: "Caption cannot exceed 500 characters",
+          success: false,
+        });
+    }
+
     // Optimize image with sharp
     const optimizedImageBuffer = await sharp(image.buffer)
-      .resize({ width: 800, height: 800, fit: "inside" })
+      .resize({
+        width: 800,
+        height: 800,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
       .toFormat("jpeg", { quality: 80 })
       .toBuffer();
 
@@ -49,7 +67,11 @@ export const addNewPost = async (req, res) => {
     )}`;
 
     // Upload to Cloudinary
-    const cloudResponse = await cloudinary.uploader.upload(fileUri);
+    const cloudResponse = await cloudinary.uploader.upload(fileUri, {
+      folder: "instaverse_images",
+      resource_type: "image",
+    });
+
     if (!cloudResponse?.secure_url) {
       return res.status(500).json({
         message: "Failed to upload image to Cloudinary",
@@ -57,17 +79,21 @@ export const addNewPost = async (req, res) => {
       });
     }
 
-    // Create new post with categories
+    // Create new post
     const post = await Post.create({
       caption: caption || "",
       image: cloudResponse.secure_url,
+      publicId: cloudResponse.public_id,
       author: authorId,
       categories: categoryArray,
+      likes: [],
+      comments: [],
     });
 
     // Update user's posts array
     const user = await User.findById(authorId);
     if (!user) {
+      await Post.findByIdAndDelete(post._id);
       return res
         .status(404)
         .json({ message: "User not found", success: false });
@@ -75,8 +101,8 @@ export const addNewPost = async (req, res) => {
     user.posts.push(post._id);
     await user.save();
 
-    // Populate author field (fixed typo)
-    await post.populate({ path: "author", select: "-password" });
+    // Populate author field
+    await post.populate({ path: "author", select: "username profilePicture" });
 
     // Send success response
     return res.status(201).json({
@@ -86,12 +112,20 @@ export const addNewPost = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in addNewPost:", error);
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({
+        message: `Multer error: ${error.message}`,
+        success: false,
+      });
+    }
     return res.status(500).json({
       message: error.message || "Something went wrong while adding the post",
       success: false,
     });
   }
 };
+
+
 export const getAllPost = async (req, res) => {
   try {
     const posts = await Post.find()

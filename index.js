@@ -17,18 +17,27 @@ import Reaction from "./models/Reaction.js";
 import { getUserProfile } from "./controllers/user.controller.js";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
 import { fixFeed } from "./utils/db.js";
-// Load environment variables
+import multer from "multer";
 dotenv.config();
-
-const PORT = process.env.PORT || 8000;
 
 // Middlewares
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
-
+// Global Multer error handling
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.error("Multer error:", err);
+    return res.status(400).json({
+      success: false,
+      message: `Multer error: ${err.message}`,
+      field: err.field,
+    });
+  }
+  next(err);
+});
 const corsOptions = {
-  origin: ["http://localhost:5173", "http://192.168.2.11:5173"],
+  origin: ["http://localhost:5173"],
   credentials: true,
 };
 app.use(cors(corsOptions));
@@ -518,6 +527,7 @@ io.on("connection", (socket) => {
     // console.log("Client disconnected:", socket.id);
   });
 });
+const PORT = 8000;
 // Start server
 server.listen(PORT, () => {
   connectDB();
