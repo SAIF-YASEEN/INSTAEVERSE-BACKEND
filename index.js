@@ -18,6 +18,7 @@ import { getUserProfile } from "./controllers/user.controller.js";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
 import { fixFeed } from "./utils/db.js";
 import multer from "multer";
+import mongoose from "mongoose";
 dotenv.config();
 
 // Middlewares
@@ -519,6 +520,38 @@ app.put("/api/v1/users/update-privacy", async (req, res) => {
     });
   }
 });
+
+app.get(
+  "/api/v1/notification-action-center/fetching-only-user-post",
+  async (req, res) => {
+    try {
+      const userId = req.query.userId;
+      // console.log("Fetching posts for userId:", userId); // Debug log
+
+      if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+        console.log("Invalid or missing userId");
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid or missing user ID" });
+      }
+
+      const posts = await Post.find({ author: userId })
+        .populate("likes", "username profilePicture")
+        .populate("dislikes", "username profilePicture")
+        .populate({
+          path: "comments",
+          populate: { path: "author", select: "username profilePicture" },
+        })
+        .maxTimeMS(5000); // 5-second timeout for query
+
+      // console.log("Posts found:", posts.length); // Debug log
+      res.json({ success: true, posts });
+    } catch (error) {
+      console.error("Error fetching user posts:", error);
+      res.status(500).json({ success: false, message: "Server error" });
+    }
+  }
+);
 // Socket.IO Connection
 io.on("connection", (socket) => {
   // console.log("New client connected:", socket.id);
