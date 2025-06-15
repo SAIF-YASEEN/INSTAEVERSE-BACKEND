@@ -10,6 +10,12 @@ const userSchema = new mongoose.Schema(
     gender: { type: String, enum: ["male", "female"] },
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    closeFriends: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "User", default: [] },
+    ],
+    conexmate: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "User", default: [] },
+    ],
     posts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
     bookmarks: [{ type: mongoose.Schema.Types.ObjectId, ref: "Post" }],
     isPrivate: { type: Boolean, default: false },
@@ -31,6 +37,20 @@ const userSchema = new mongoose.Schema(
     disabledAt: { type: Date },
     feed: { type: [String], default: [] },
     activityStatus: { type: Boolean, default: true },
+    hideProfilePosts: { type: Boolean, default: false },
+    hideProfileLikedPosts: { type: Boolean, default: false },
+    hideProfileDislikedPosts: { type: Boolean, default: false },
+    hideProfileSavedPosts: { type: Boolean, default: false },
+    blueTick: { type: Boolean, default: false },
+    accountChoice: {
+      type: String,
+      enum: ["normal", "professional"],
+      default: "normal",
+    },
+    chatTabs: { type: Boolean, default: true },
+    note: { type: String, maxlength: 280, default: "" },
+    noteCreatedAt: { type: Date }, // New field to track note creation time
+    notePresent: { type: Boolean, defualt: false },
   },
   { timestamps: true }
 );

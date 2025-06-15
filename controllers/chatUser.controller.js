@@ -1,10 +1,10 @@
 import { User } from "../models/user.model.js";
-
+import { ChatUser } from "../models/chatUser.model.js";
 // Add a user to the current user's chat list
 export const addChatUser = async (req, res) => {
   try {
+    console.log("Request body:", req.body); 
     const { userId, currentUserId } = req.body;
-
     if (!userId || !currentUserId) {
       return res.status(400).json({
         success: false,
@@ -19,7 +19,9 @@ export const addChatUser = async (req, res) => {
       });
     }
 
-    const targetUser = await User.findById(userId);
+    const targetUser = await User.findById(userId).select(
+      "username profilePicture activityStatus blueTick"
+    );
     if (!targetUser) {
       return res.status(404).json({
         success: false,
@@ -50,7 +52,13 @@ export const addChatUser = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "User added to chat list",
-      chatUser: { _id: userId },
+      chatUser: {
+        _id: targetUser._id,
+        username: targetUser.username,
+        profilePicture: targetUser.profilePicture,
+        activityStatus: targetUser.activityStatus,
+        blueTick: targetUser.blueTick, // Include blueTick
+      },
     });
   } catch (error) {
     console.error("Error adding chat user:", error);
@@ -75,7 +83,7 @@ export const getChatUsers = async (req, res) => {
 
     const user = await User.findById(currentUserId).populate(
       "chatUsers",
-      "username profilePicture activityStatus"
+      "username profilePicture activityStatus blueTick"
     );
 
     if (!user) {
@@ -85,11 +93,15 @@ export const getChatUsers = async (req, res) => {
       });
     }
 
+    // Debug log to check populated data
+    console.log("Populated chatUsers:", user.chatUsers);
+
     const formattedChatUsers = user.chatUsers.map((chatUser) => ({
       _id: chatUser._id,
       username: chatUser.username,
       profilePicture: chatUser.profilePicture,
       activityStatus: chatUser.activityStatus,
+      blueTick: chatUser.blueTick ?? false, // Fallback to false
     }));
 
     return res.status(200).json({
@@ -105,7 +117,7 @@ export const getChatUsers = async (req, res) => {
   }
 };
 
-// Optionally, add a delete endpoint if needed
+// Delete a user from the current user's chat list
 export const deleteChatUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -143,6 +155,36 @@ export const deleteChatUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Error deleting chat user:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+// Temporary endpoint to update blueTick for all users
+export const updateBlueTick = async (req, res) => {
+  try {
+    // Set blueTick: false for all users
+    const updateResult = await User.updateMany(
+      {},
+      { $set: { blueTick: false } }
+    );
+
+    // Set blueTick: true for a specific user (e.g., saifurrehman___0708)
+    const specificUserResult = await User.updateOne(
+      { username: "saifurrehman___0708" },
+      { $set: { blueTick: true } }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "BlueTick updated for users",
+      updatedCount: updateResult.modifiedCount,
+      specificUserUpdated: specificUserResult.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Error updating blueTick:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",

@@ -14,7 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "cloudinary": "^2.5.1",
+    "cloudinary": "^1.41.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "datauri": "^4.1.0",
@@ -25,9 +25,23 @@
     "mongoose": "^8.10.1",
     "multer": "^1.4.5-lts.1",
     "multer-storage-cloudinary": "^4.0.0",
+    "node-cron": "^4.1.0",
     "nodemon": "^3.1.9",
+    "open-graph-scraper": "^6.10.0",
     "react-toastify": "^11.0.5",
     "sharp": "^0.33.5",
-    "socket.io": "^4.8.1"
-  }
+    "socket.io": "^4.8.1",
+    "spotify-web-api-node": "^5.0.2",
+    "ua-parser-js": "^2.0.3",
+    "user-agent-parser": "^0.6.0",
+    "uuid": "^11.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SAIF-YASEEN/INSTAEVERSE-BACKEND.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SAIF-YASEEN/INSTAEVERSE-BACKEND/issues"
+  },
+  "homepage": "https://github.com/SAIF-YASEEN/INSTAEVERSE-BACKEND#readme"
 }

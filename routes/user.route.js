@@ -1,20 +1,24 @@
 import express from "express";
 import {
-  editProfile,
-  followOrUnfollow,
-  getProfile,
-  getSuggestedUsers,
+  register,
   login,
   logout,
-  register,
+  getProfile,
+  editProfile,
+  getSuggestedUsers,
+  followOrUnfollow,
   getUsersByIds,
+  getConexmateUsers,
   removeFollower,
   getUserFeed,
   getLikesOfPost,
+  addChatUser,
+  getChatUsers,
+  updatePrivacy,
 } from "../controllers/user.controller.js";
+import { getFollowNotifications } from "../controllers/followNotificationsController.js";
 import isAuthenticated from "../middlewares/isAuthenticated.js";
 import upload from "../middlewares/multer.js";
-import { getFollowNotifications } from "../controllers/followNotificationsController.js";
 
 const router = express.Router();
 
@@ -29,11 +33,15 @@ router
 router.route("/suggested").get(isAuthenticated, getSuggestedUsers);
 router.route("/followorunfollow/:id").post(isAuthenticated, followOrUnfollow);
 router.post("/get-users-by-ids", isAuthenticated, getUsersByIds);
+router.post("/get-conexmate-users", isAuthenticated, getConexmateUsers);
 router.post("/remove-follower/:id", isAuthenticated, removeFollower);
 router.route("/feed").get(isAuthenticated, getUserFeed);
 router
   .route("/follow-notifications/:userId")
   .get(isAuthenticated, getFollowNotifications);
 router.post("/getlikesofpost", isAuthenticated, getLikesOfPost);
+router.post("/chat-user/add", isAuthenticated, addChatUser);
+router.get("/chat-user", isAuthenticated, getChatUsers);
+router.post("/update-privacy", isAuthenticated, updatePrivacy);
 
 export default router;

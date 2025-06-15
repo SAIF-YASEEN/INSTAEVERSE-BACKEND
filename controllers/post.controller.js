@@ -68,7 +68,7 @@ export const addNewPost = async (req, res) => {
 
     // Upload to Cloudinary
     const cloudResponse = await cloudinary.uploader.upload(fileUri, {
-      folder: "instaverse_images",
+      folder: "conexa_images",
       resource_type: "image",
     });
 
@@ -130,7 +130,7 @@ export const getAllPost = async (req, res) => {
   try {
     const posts = await Post.find()
       .sort({ createdAt: -1 })
-      .populate({ path: "author", select: "username profilePicture" })
+      .populate({ path: "author", select: "username profilePicture blueTick" })
       .populate({
         path: "comments",
         sort: { createdAt: -1 },

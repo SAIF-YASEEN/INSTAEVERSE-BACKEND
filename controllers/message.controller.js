@@ -2,11 +2,152 @@ import { Conversation } from "../models/conversation.model.js";
 import { Message } from "../models/message.model.js";
 import { getReceiverSocketId, io } from "../socket/socket.js";
 import { User } from "../models/user.model.js";
+import cloudinary from "../utils/cloudinary.js"
 
+
+
+export const sendMessage = async (req, res) => {
+  try {
+    const senderId = req.id; // From auth middleware
+    const receiverId = req.params.id; // From URL params
+    const { message, image, postId } = req.body; // Added postId
+
+    // Validate sender and receiver
+    if (!senderId || !receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "Sender and receiver IDs are required.",
+      });
+    }
+
+    // Ensure receiver exists
+    const receiver = await User.findById(receiverId);
+    if (!receiver) {
+      return res.status(404).json({
+        success: false,
+        message: "Receiver not found.",
+      });
+    }
+
+    let newMessage;
+    let imageUrl;
+
+    if (image) {
+      // Handle base64 image upload to Cloudinary
+      const uploadResponse = await cloudinary.uploader.upload(image, {
+        folder: "chat_images",
+      });
+      imageUrl = uploadResponse.secure_url;
+
+      newMessage = await Message.create({
+        senderId,
+        receiverId,
+        message: message?.trim() || null, // Allow empty text if image is present
+        image: imageUrl,
+        messageType: "image",
+      });
+    } else if (req.file) {
+      // Handle voice messages
+      const filePath = `/uploads/voice/${req.file.filename}`;
+      newMessage = await Message.create({
+        senderId,
+        receiverId,
+        message: filePath,
+        messageType: "voice",
+      });
+    } else if (postId) {
+      // Handle post sharing
+      const postMessage = message?.trim() || `Shared a post: ${postId}`;
+      newMessage = await Message.create({
+        senderId,
+        receiverId,
+        message: postMessage,
+        postId, // Store postId for rendering
+        messageType: "post",
+      });
+    } else {
+      // Handle text messages
+      if (!message?.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Message text is required for text messages.",
+        });
+      }
+      newMessage = await Message.create({
+        senderId,
+        receiverId,
+        message,
+        messageType: "text",
+      });
+    }
+
+    // Find or create conversation
+    let conversation = await Conversation.findOne({
+      participants: { $all: [senderId, receiverId] },
+    });
+
+    if (!conversation) {
+      conversation = await Conversation.create({
+        participants: [senderId, receiverId],
+        messages: [],
+      });
+    }
+
+    conversation.messages.push(newMessage._id);
+    await conversation.save();
+
+    // Fetch sender's details
+    const sender = await User.findById(senderId).select("username avatar");
+    const senderUsername = sender ? sender.username : "Unknown";
+    const senderAvatar =
+      sender && sender.avatar
+        ? sender.avatar
+        : "https://via.placeholder.com/40";
+
+    // Prepare message response
+    const messageWithDetails = {
+      ...newMessage._doc,
+      senderUsername,
+      senderAvatar,
+      image: imageUrl || null,
+      postId: newMessage.postId || null,
+    };
+
+    // Emit to Socket.IO
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", messageWithDetails);
+    }
+    const senderSocketId = getReceiverSocketId(senderId);
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("newMessage", messageWithDetails);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Message sent successfully.",
+      newMessage: messageWithDetails,
+    });
+  } catch (error) {
+    console.error("Error sending message:", error.message, error.stack);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error.",
+    });
+  }
+};
 export const getMessage = async (req, res) => {
   try {
     const senderId = req.id;
     const receiverId = req.params.id;
+
+    // Validate IDs
+    if (!senderId || !receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "Sender and receiver IDs are required.",
+      });
+    }
 
     const conversation = await Conversation.findOne({
       participants: { $all: [senderId, receiverId] },
@@ -21,22 +162,30 @@ export const getMessage = async (req, res) => {
 
     const messages = await Message.find({
       _id: { $in: conversation.messages },
-    }).populate("senderId", "username");
+    })
+      .populate("senderId", "username avatar")
+      .lean(); // Use lean for better performance
 
-    // console.log("Fetched messages from DB:", messages);
+    // Enhance messages with sender details
+    const enhancedMessages = messages.map((msg) => ({
+      ...msg,
+      senderUsername: msg.senderId?.username || "Unknown",
+      senderAvatar:
+        msg.senderId?.avatar || "https://via.placeholder.com/40",
+    }));
+
     return res.status(200).json({
       success: true,
-      messages: messages,
+      messages: enhancedMessages,
     });
   } catch (error) {
-    // console.error("Error fetching messages:", error);
+    console.error("Error fetching messages:", error.message, error.stack);
     return res.status(500).json({
       success: false,
-      message: "Internal server error.",
+      message: error.message || "Internal server error.",
     });
   }
 };
-
 export const deleteMessage = async (req, res) => {
   try {
     const messageId = req.params.messageId;
@@ -95,88 +244,4 @@ export const deleteMessage = async (req, res) => {
     });
   }
 };
-export const sendMessage = async (req, res) => {
-  try {
-    const senderId = req.id;
-    const receiverId = req.params.id;
-    const { message } = req.body;
-    const audioFile = req.file;
 
-    let newMessage;
-
-    if (audioFile) {
-      const filePath = `/uploads/voice/${audioFile.filename}`;
-      newMessage = await Message.create({
-        senderId,
-        receiverId,
-        message: filePath,
-        messageType: "voice",
-      });
-    } else {
-      if (!message?.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: "Message text is required for text messages.",
-        });
-      }
-      newMessage = await Message.create({
-        senderId,
-        receiverId,
-        message,
-        messageType: "text",
-      });
-    }
-
-    let conversation = await Conversation.findOne({
-      participants: { $all: [senderId, receiverId] },
-    });
-
-    if (!conversation) {
-      conversation = await Conversation.create({
-        participants: [senderId, receiverId],
-        messages: [],
-      });
-    }
-
-    conversation.messages.push(newMessage._id);
-    await conversation.save();
-
-    // Fetch sender's username and avatar
-    const sender = await User.findById(senderId).select("username avatar");
-    const senderUsername = sender ? sender.username : "Unknown";
-    const senderAvatar =
-      sender && sender.avatar
-        ? sender.avatar
-        : "https://via.placeholder.com/40";
-
-    // Add senderUsername and senderAvatar to the newMessage object
-    const messageWithDetails = {
-      ...newMessage._doc,
-      senderUsername,
-      senderAvatar,
-    };
-
-    const receiverSocketId = getReceiverSocketId(receiverId);
-    if (receiverSocketId) {
-      console.log("Emitting newMessage to receiver:", messageWithDetails);
-      io.to(receiverSocketId).emit("newMessage", messageWithDetails);
-    }
-    const senderSocketId = getReceiverSocketId(senderId);
-    if (senderSocketId) {
-      console.log("Emitting newMessage to sender:", messageWithDetails);
-      io.to(senderSocketId).emit("newMessage", messageWithDetails);
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: "Message sent successfully.",
-      newMessage,
-    });
-  } catch (error) {
-    console.error("Error sending message:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-};

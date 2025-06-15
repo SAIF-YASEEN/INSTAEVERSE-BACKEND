@@ -1,3 +1,4 @@
+// message.model.js
 import mongoose from "mongoose";
 import moment from "moment";
 
@@ -14,11 +15,15 @@ const messageSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: false, // Allow null for deleted messages
+    required: false, // Allow null for deleted messages or image-only messages
+  },
+  image: {
+    type: String, // Store Cloudinary URL for images
+    default: null,
   },
   messageType: {
     type: String,
-    enum: ["text", "voice"],
+    enum: ["text", "voice", "image"], // Add 'image' type
     default: "text",
   },
   isDeleted: {
@@ -34,12 +39,10 @@ const messageSchema = new mongoose.Schema({
     default: () => moment().format("MMM D, h:mm A"),
   },
   isEdited: {
-    // Added isEdited field
     type: Boolean,
     default: false,
   },
   editedAt: {
-    // Optional: track when it was edited
     type: Date,
     default: null,
   },
