@@ -5,36 +5,100 @@ import jwt from "jsonwebtoken";
 import getDataUri from "../utils/datauri.js";
 import cloudinary from "../utils/cloudinary.js";
 import asyncHandler from "../utils/asyncHandler.js";
-
+import { DisabledAccount } from "../models/DisabledAccount.js";
+import axios from "axios";
 let io;
 export const setIo = (socketIo) => {
   io = socketIo;
 };
 
 export const register = asyncHandler(async (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password) {
+  const {
+    username,
+    name,
+    email,
+    password,
+    gender,
+    dob,
+    city,
+    country,
+    profilePicture,
+    accountChoice,
+  } = req.body;
+
+  // Validate required fields
+  if (
+    !username ||
+    !name ||
+    !email ||
+    !password ||
+    !gender ||
+    !dob ||
+    !city ||
+    !country ||
+    !accountChoice
+  ) {
     return res.status(400).json({
-      message: "Something is missing, please check!",
+      message: "All required fields must be provided.",
       success: false,
     });
   }
-  const user = await User.findOne({ email });
+
+  // Validate age (must be 18+)
+  const birthDate = new Date(dob);
+  const today = new Date();
+  const age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  // if (
+  //   monthDiff < 0 ||
+  //   (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  // ) {
+  //   age--;
+  // }
+  if (age < 18) {
+    return res.status(400).json({
+      message: "You must be at least 18 years old to register.",
+      success: false,
+    });
+  }
+
+  // Check for existing user
+  const user = await User.findOne({ $or: [{ email }, { username }] });
   if (user) {
     return res.status(400).json({
-      message: "Try different email",
+      message: "Email or username already exists.",
       success: false,
     });
   }
+
+  // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
-  await User.create({
+
+  // Create user
+  const newUser = await User.create({
     username,
+    name,
     email,
     password: hashedPassword,
+    gender,
+    dob: birthDate,
+    city,
+    country,
+    profilePicture: profilePicture || "/defaultAvatar/img1.png",
+    accountChoice,
   });
+
   return res.status(201).json({
     message: "Account created successfully.",
     success: true,
+    user: {
+      _id: newUser._id,
+      username: newUser.username,
+      name: newUser.name,
+      email: newUser.email,
+      gender: newUser.gender,
+      profilePicture: newUser.profilePicture,
+    },
   });
 });
 
@@ -46,26 +110,57 @@ export const login = asyncHandler(async (req, res) => {
       success: false,
     });
   }
+
+  // Check in User collection first
   let user = await User.findOne({ email });
+  let isDisabledAccount = false;
+
+  // If not found in User, check DisabledAccount collection
   if (!user) {
-    return res.status(401).json({
-      message: "Incorrect email or password",
-      success: false,
-    });
+    const disabledAccount = await DisabledAccount.findOne({ email });
+    if (disabledAccount) {
+      isDisabledAccount = true;
+    } else {
+      return res.status(401).json({
+        message: "Incorrect email or password",
+        success: false,
+      });
+    }
   }
+
+  // If account is disabled, attempt to re-enable it
+  if (isDisabledAccount) {
+    const enableResponse = await axios.post(
+      "http://localhost:8000/api/v1/user/enable",
+      { userId: (await DisabledAccount.findOne({ email }))._id },
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    if (!enableResponse.data.success) {
+      return res.status(400).json({
+        message: "Failed to re-enable account. Please contact support.",
+        success: false,
+      });
+    }
+
+    // Fetch the re-enabled user
+    user = await User.findOne({ email });
+    if (!user) {
+      return res.status(500).json({
+        message: "Error retrieving re-enabled account",
+        success: false,
+      });
+    }
+  }
+
   const isPasswordMatch = await bcrypt.compare(password, user.password);
   if (!isPasswordMatch) {
     return res.status(401).json({
       message: "Incorrect email or password",
       success: false,
     });
-  }
-
-  // If user is disabled, enable them again
-  if (user.isDisabled) {
-    user.isDisabled = false;
-    user.disabledAt = null;
-    await user.save();
   }
 
   const token = jwt.sign({ userId: user._id }, process.env.SECRET_KEY, {
@@ -105,7 +200,9 @@ export const login = asyncHandler(async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     })
     .json({
-      message: `Welcome back ${user.username}`,
+      message: isDisabledAccount
+        ? `Account re-enabled! Welcome back ${user.username}`
+        : `Welcome back ${user.username}`,
       success: true,
       user: userResponse,
     });

@@ -24,6 +24,7 @@ import SpotifyWebApi from "spotify-web-api-node";
 import { UAParser } from "ua-parser-js";
 import { v4 as uuidv4 } from "uuid";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
+import { DisabledAccount } from "./models/DisabledAccount.js";
 import { schedule } from "node-cron";
 dotenv.config();
 
@@ -99,6 +100,259 @@ app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
+app.post("/api/v1/user/disable", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    // Validate userId
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId",
+      });
+    }
+
+    // Find user in User model
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // Create a copy in DisabledAccount
+    const disabledAccount = new DisabledAccount({
+      ...user.toObject(),
+      _id: user._id, // Preserve the same _id
+      isDisabled: true,
+      disabledAt: new Date(),
+    });
+    await disabledAccount.save();
+
+    // Remove user from User model
+    await User.findByIdAndDelete(userId);
+
+    res.status(200).json({
+      success: true,
+      message: "Account disabled successfully",
+    });
+  } catch (error) {
+    console.error("Error disabling account:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disable account",
+    });
+  }
+});
+app.post("/api/v1/user/enable", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    // Validate userId
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId",
+      });
+    }
+
+    // Find user in DisabledAccount model
+    const disabledAccount = await DisabledAccount.findById(userId);
+    if (!disabledAccount) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Disabled account not found" });
+    }
+
+    // Create a copy in User model
+    const user = new User({
+      ...disabledAccount.toObject(),
+      _id: disabledAccount._id, // Preserve the same _id
+      isDisabled: false,
+      disabledAt: null,
+    });
+    await user.save();
+
+    // Remove user from DisabledAccount model
+    await DisabledAccount.findByIdAndDelete(userId);
+
+    res.status(200).json({
+      success: true,
+      message: "Account re-enabled successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Error re-enabling account:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to re-enable account",
+    });
+  }
+});
+app.delete("/api/v1/user/delete", async (req, res) => {
+  try {
+    // Get userId from headers (sent as "User-Id" from frontend)
+    const userId = req.headers["user-id"];
+
+    // Validate userId
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing User-Id header",
+      });
+    }
+
+    // Check if user exists in User model
+    let user = await User.findById(userId);
+    if (user) {
+      // Step 1: Delete all posts by the user
+      const userPosts = await Post.find({ author: userId });
+      const postIds = userPosts.map((post) => post._id);
+
+      // Delete all comments on user's posts
+      await Comment.deleteMany({ post: { $in: postIds } });
+
+      // Delete the posts themselves
+      await Post.deleteMany({ author: userId });
+
+      // Step 2: Delete all comments made by the user
+      await Comment.deleteMany({ author: userId });
+
+      // Step 3: Delete all messages sent or received by the user
+      await Message.deleteMany({
+        $or: [{ senderId: userId }, { receiverId: userId }],
+      });
+
+      // Step 4: Delete all reactions made by the user
+      await Reaction.deleteMany({ userId });
+
+      // Step 5: Remove user from other users' followers/following lists
+      await User.updateMany(
+        { followers: userId },
+        { $pull: { followers: userId } }
+      );
+      await User.updateMany(
+        { following: userId },
+        { $pull: { following: userId } }
+      );
+
+      // Step 6: Remove user from closeFriends, conexmate, and chatUsers lists
+      await User.updateMany(
+        { closeFriends: userId },
+        { $pull: { closeFriends: userId } }
+      );
+      await User.updateMany(
+        { conexmate: userId },
+        { $pull: { conexmate: userId } }
+      );
+      await User.updateMany(
+        { chatUsers: userId },
+        { $pull: { chatUsers: userId } }
+      );
+
+      // Step 7: Remove user from bookmarks and followTimestamps
+      await User.updateMany(
+        { bookmarks: { $in: postIds } },
+        { $pull: { bookmarks: { $in: postIds } } }
+      );
+      await User.updateMany(
+        { "followTimestamps.userId": userId },
+        { $pull: { followTimestamps: { userId } } }
+      );
+
+      // Step 8: Remove user from likes/dislikes on other posts
+      await Post.updateMany({ likes: userId }, { $pull: { likes: userId } });
+      await Post.updateMany(
+        { dislikes: userId },
+        { $pull: { dislikes: userId } }
+      );
+
+      // Step 9: Delete the user
+      await User.findByIdAndDelete(userId);
+
+      // Step 10: Clear cookies (if applicable)
+      res.clearCookie("jwt"); // Clear JWT cookie if used
+
+      return res.status(200).json({
+        success: true,
+        message: "Account deleted successfully",
+      });
+    }
+
+    // Check if user exists in DisabledAccount model
+    user = await DisabledAccount.findById(userId);
+    if (user) {
+      await DisabledAccount.findByIdAndDelete(userId);
+      return res.status(200).json({
+        success: true,
+        message: "Account deleted successfully",
+      });
+    }
+
+    res.status(404).json({ success: false, message: "User not found" });
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete account",
+    });
+  }
+});
+
+app.post("/api/v1/user/report/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { currentUserId, reason } = req.body;
+
+    // Validate inputs
+    if (!currentUserId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Current user ID and report reason are required",
+      });
+    }
+
+    // Check if both users exist
+    const targetUser = await User.findById(userId);
+    const reportingUser = await User.findById(currentUserId);
+
+    if (!targetUser || !reportingUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Prevent self-reporting
+    if (userId === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot report yourself",
+      });
+    }
+
+    // Add report to target user's reports array
+    targetUser.reports.push({
+      reportedBy: currentUserId,
+      reason,
+      reportedAt: new Date(),
+    });
+
+    await targetUser.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "User reported successfully",
+    });
+  } catch (error) {
+    console.error("Report User Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to report user",
+    });
+  }
+});
+
 app.get("/api/get-user-database", async (req, res) => {
   const { userId } = req.query;
   try {
@@ -113,6 +367,176 @@ app.get("/api/get-user-database", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+app.post("/user/profession", async (req, res) => {
+  try {
+    const { userId, profession } = req.body;
+
+    if (!userId || !profession) {
+      return res
+        .status(400)
+        .json({ message: "User ID and profession are required" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { profession },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({ message: "Profession updated successfully", user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+app.patch("/api/v1/user/profile/username", async (req, res) => {
+  try {
+    const { username, userId } = req.body;
+
+    // Validate input
+    if (!username || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and userId are required",
+      });
+    }
+
+    // Check if username is already taken
+    const existingUser = await User.findOne({ username });
+    if (existingUser && existingUser._id.toString() !== userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Username already taken",
+      });
+    }
+
+    // Find and update user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Update username
+    user.username = username;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Username updated successfully",
+      user: {
+        username: user.username,
+        _id: user._id,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating username:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating username",
+    });
+  }
+});
+app.patch("/api/v1/user/profile/name", async (req, res) => {
+  try {
+    const { name, userId } = req.body;
+
+    // Validate input
+    if (!name || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and userId are required",
+      });
+    }
+
+    // Validate name is a non-empty string
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Name must be a non-empty string",
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Update name
+    user.name = name.trim();
+    user.markModified("name"); // Ensure Mongoose tracks the change
+    await user.save({ validateBeforeSave: true, w: "majority" });
+
+    // Verify update in database
+    const updatedUser = await User.findById(userId).select("name");
+
+    return res.status(200).json({
+      success: true,
+      message: "Name updated successfully",
+      user: {
+        name: user.name,
+        _id: user._id,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating name",
+      error: error.message,
+    });
+  }
+});
+app.get("/notification-profiles/:userId", async (req, res) => {
+  try {
+    console.log("jeje", req.params.userId);
+    const user = await User.findById(req.params.userId).select(
+      "username name profilePicture blueTick"
+    );
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json({
+      blueTick: user.blueTick,
+      username: user.username,
+      name: user.name,
+      profilePicture: user.profilePicture || "https://via.placeholder.com/40",
+    });
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+app.get("/full/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate ObjectId
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: "Invalid user ID format" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching full user profile:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // Post a note without authMiddleware
 app.post("/api/notes", async (req, res) => {
   try {
@@ -135,7 +559,7 @@ app.post("/api/notes", async (req, res) => {
 
     user.note = content;
     user.noteCreatedAt = new Date();
-    user.notePresent = true; // Set notePresent to true
+    user.notePresent = true;
     await user.save();
 
     res.status(200).json({ message: "Note posted successfully" });
@@ -193,7 +617,7 @@ app.delete("/api/notes/delete-note", async (req, res) => {
     }
 
     user.note = "";
-    user.notePresent = false; 
+    user.notePresent = false;
 
     user.noteCreatedAt = null;
     await user.save();
@@ -1201,38 +1625,81 @@ app.get("/api/users/:userId", async (req, res) => {
   }
 });
 
+// app.patch("/api/users/:userId/blue-tick", async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const { blueTick } = req.body;
+
+//     if (typeof blueTick !== "boolean") {
+//       return res
+//         .status(400)
+//         .json({ message: "Invalid blueTick value. Must be a boolean." });
+//     }
+
+//     const user = await User.findByIdAndUpdate(
+//       userId,
+//       { blueTick },
+//       { new: true, runValidators: true }
+//     );
+
+//     if (!user) {
+//       return res.status(404).json({ message: "User not found." });
+//     }
+
+//     res.status(200).json({
+//       message: "Blue tick status updated successfully.",
+//       user: {
+//         id: user._id,
+//         username: user.username,
+//         blueTick: user.blueTick,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error updating blue tick status:", error);
+//     res.status(500).json({ message: "Server error." });
+//   }
+// });
 app.patch("/api/users/:userId/blue-tick", async (req, res) => {
   try {
     const { userId } = req.params;
-    const { blueTick } = req.body;
+    const { blueTick, application } = req.body;
 
-    if (typeof blueTick !== "boolean") {
+    // Validate ObjectId
+    if (!/^[0-9a-fA-F]{24}$/.test(userId)) {
       return res
         .status(400)
-        .json({ message: "Invalid blueTick value. Must be a boolean." });
+        .json({ success: false, message: "Invalid user ID" });
     }
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { blueTick },
-      { new: true, runValidators: true }
-    );
-
+    const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: "User not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
-    res.status(200).json({
-      message: "Blue tick status updated successfully.",
-      user: {
-        id: user._id,
-        username: user.username,
-        blueTick: user.blueTick,
-      },
-    });
+    // Check for reports if requesting blue tick
+    if (blueTick && user.reports && user.reports.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Cannot grant blue tick due to active reports",
+      });
+    }
+
+    // Update blue tick status
+    user.blueTick = blueTick;
+    if (blueTick && application) {
+      user.blueTickApplication = application; // Store application details
+    } else if (!blueTick) {
+      user.blueTickApplication = null; // Clear application on removal
+    }
+
+    const updatedUser = await user.save();
+
+    res.json({ success: true, user: updatedUser });
   } catch (error) {
-    console.error("Error updating blue tick status:", error);
-    res.status(500).json({ message: "Server error." });
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 

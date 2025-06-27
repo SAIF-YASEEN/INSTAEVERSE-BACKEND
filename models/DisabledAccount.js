@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema(
+const disabledAccountSchema = new mongoose.Schema(
   {
     username: { type: String, required: true, unique: true, trim: true },
     name: { type: String, trim: true },
@@ -40,11 +40,11 @@ const userSchema = new mongoose.Schema(
         default: [],
       },
     ],
-    isDisabled: { type: Boolean, default: false },
+    isDisabled: { type: Boolean, default: true },
     profession: {
       type: String,
     },
-    disabledAt: { type: Date },
+    disabledAt: { type: Date, default: Date.now },
     feed: { type: [String], default: [] },
     activityStatus: { type: Boolean, default: true },
     hideProfilePosts: { type: Boolean, default: false },
@@ -74,7 +74,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // Add TTL index to expire notes after 24 hours
-userSchema.index(
+disabledAccountSchema.index(
   { noteCreatedAt: 1 },
   {
     expireAfterSeconds: 24 * 60 * 60, // 24 hours
@@ -82,4 +82,4 @@ userSchema.index(
   }
 );
 
-export const User = mongoose.model("User", userSchema);
+export const DisabledAccount = mongoose.model("DisabledAccount", disabledAccountSchema);
