@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import connectDB from "./utils/db.js";
 import userRoute from "./routes/user.route.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import storiesRoute from "./routes/storiesRoute.js";
 import postRoute from "./routes/post.route.js";
 import messageRoute from "./routes/message.route.js";
 import { app, server, io } from "./socket/socket.js"; // Ensure io is exported from socket.js
@@ -17,6 +18,7 @@ import { ChatUser } from "./models/chatUser.model.js";
 import Reaction from "./models/Reaction.js";
 import { getUserProfile } from "./controllers/user.controller.js";
 import { fixFeed } from "./utils/db.js";
+import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import ogs from "open-graph-scraper";
 import mongoose from "mongoose";
@@ -25,15 +27,34 @@ import { UAParser } from "ua-parser-js";
 import { v4 as uuidv4 } from "uuid";
 import isAuthenticated from "./middlewares/isAuthenticated.js";
 import { DisabledAccount } from "./models/DisabledAccount.js";
+import { Story } from "./models/stories.model.js";
 import { schedule } from "node-cron";
+import bcrypt from "bcryptjs";
+import cron from "node-cron";
+
 dotenv.config();
 
 // Middlewares
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
-
-// Global Multer error handling
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only images are allowed"), false);
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+});
+cloudinary.config({
+  cloud_name: "dxjsianea",
+  api_key: "186871492126217",
+  api_secret: "6FEpL3-B2dVqjHEU8VEP9wQaN30",
+});
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     console.error("Multer error:", err);
@@ -45,7 +66,6 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
-
 const corsOptions = {
   origin: "http://localhost:5173",
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -53,8 +73,6 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
-
-// Authentication middleware
 const authMiddleware = async (req, res, next) => {
   try {
     const userId = req.headers["user-id"];
@@ -74,8 +92,6 @@ const authMiddleware = async (req, res, next) => {
       .json({ message: "Authentication error", error: error.message });
   }
 };
-
-// Socket.IO Connection
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
 
@@ -94,12 +110,607 @@ io.on("connection", (socket) => {
     io.to(selectedUserId).emit("messages-seen", { userId });
   });
 });
-
 // Routes
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
+
+app.post("/api/v1/stories", upload.single("image"), async (req, res) => {
+  console.log("Reached createStory");
+  console.log("Request body:", req.body);
+  console.log("Request file:", req.file);
+
+  try {
+    const { userId, content, visibility } = req.body;
+    let image = "";
+
+    if (req.file) {
+      console.log("Uploading image to Cloudinary:", req.file.originalname);
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: "stories",
+            resource_type: "image",
+          },
+          (error, result) => {
+            if (error) {
+              console.error("Cloudinary upload error:", error);
+              reject(new Error("Cloudinary upload failed: " + error.message));
+            } else {
+              console.log("Cloudinary upload success:", result.secure_url);
+              resolve(result);
+            }
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      image = result.secure_url || "";
+    } else {
+      console.log("No image file provided");
+    }
+
+    if (!userId || (!content && !image)) {
+      console.log("Validation failed: Missing userId or content/image");
+      return res.status(400).json({
+        success: false,
+        message: "User ID and either content or image are required",
+      });
+    }
+
+    if (!mongoose.isValidObjectId(userId)) {
+      console.log("Invalid userId:", userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userId",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    await Story.deleteOne({ userId });
+
+    const story = new Story({
+      userId,
+      content,
+      image,
+      visibility: visibility || "conexmate",
+    });
+
+    await story.save();
+    console.log("Story saved:", story);
+
+    await User.findByIdAndUpdate(userId, {
+      storyPresent: true,
+      storyCreatedAt: new Date(),
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Story created successfully",
+      data: story,
+    });
+  } catch (error) {
+    console.error("Error creating story:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create story",
+      error: error.message,
+    });
+  }
+});
+app.delete("/api/v1/stories/delete-story", async (req, res) => {
+  try {
+    console.log("delete story route hitted");
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    const story = await Story.findOne({ userId });
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: "Story not found",
+      });
+    }
+
+    if (story.image) {
+      const publicId = story.image.split("/").pop().split(".")[0];
+      await cloudinary.uploader.destroy(`stories/${publicId}`);
+    }
+
+    await Story.deleteOne({ userId });
+    await User.findByIdAndUpdate(userId, {
+      storyPresent: false,
+      storyCreatedAt: null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Story deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting story:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete story",
+      error: error.message,
+    });
+  }
+});
+app.get("/api/v1/stories/user/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requestingUserId = req.headers["user-id"];
+
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId",
+      });
+    }
+
+    if (!requestingUserId || !mongoose.isValidObjectId(requestingUserId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: Requesting user ID is missing or invalid",
+      });
+    }
+
+    const story = await Story.findOne({ userId })
+      .populate("userId", "username name profilePicture blueTick")
+      .populate("likes.userId", "username profilePicture")
+      .populate("comments.userId", "username profilePicture");
+
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: "No story found for this user",
+      });
+    }
+
+    const now = new Date();
+    const hoursRemaining = (now - new Date(story.createdAt)) / (1000 * 60 * 60);
+    if (hoursRemaining > 24) {
+      return res.status(404).json({
+        success: false,
+        message: "Story has expired",
+      });
+    }
+
+    const targetUser = await User.findById(userId);
+    const requestingUser = await User.findById(requestingUserId);
+    let hasAccess = false;
+
+    if (story.visibility === "everyone") {
+      hasAccess = true;
+    } else if (story.visibility === "conexmate") {
+      hasAccess = targetUser.conexmate.includes(requestingUserId);
+    } else if (story.visibility === "closeConex") {
+      hasAccess = targetUser.closeFriends.includes(requestingUserId);
+    }
+
+    if (userId === requestingUserId) {
+      hasAccess = true;
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view this story",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        _id: story._id,
+        story: story.content,
+        image: story.image,
+        likes: story.likes.map((like) => ({
+          _id: like._id,
+          userId: like.userId._id,
+          username: like.userId.username,
+          profilePicture: like.userId.profilePicture,
+          createdAt: like.createdAt,
+        })),
+        comments: story.comments.map((comment) => ({
+          _id: comment._id,
+          userId: comment.userId._id,
+          username: comment.userId.username,
+          profilePicture: comment.userId.profilePicture,
+          content: comment.content,
+          createdAt: comment.createdAt,
+        })),
+        storyCreatedAt: story.createdAt,
+        username: story.userId.username,
+        name: story.userId.name,
+        profilePicture: story.userId.profilePicture,
+        blueTick: story.userId.blueTick,
+        userId: story.userId._id,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching story:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch story",
+      error: error.message,
+    });
+  }
+});
+app.post("/api/v1/stories/:storyId/like", async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const { userId } = req.body;
+
+    if (!storyId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Story ID and User ID are required",
+      });
+    }
+
+    const story = await Story.findById(storyId);
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: "Story not found",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const alreadyLiked = story.likes.some(
+      (like) => like.userId.toString() === userId
+    );
+    if (alreadyLiked) {
+      story.likes = story.likes.filter(
+        (like) => like.userId.toString() !== userId
+      );
+    } else {
+      story.likes.push({ userId, username: user.username });
+    }
+
+    await story.save();
+
+    // Populate the story data to return consistent response
+    const populatedStory = await Story.findById(storyId)
+      .populate("userId", "username name profilePicture blueTick")
+      .populate("likes.userId", "username profilePicture")
+      .populate("comments.userId", "username profilePicture");
+
+    return res.status(200).json({
+      success: true,
+      message: alreadyLiked ? "Story unliked" : "Story liked",
+      data: {
+        _id: populatedStory._id,
+        story: populatedStory.content,
+        image: populatedStory.image,
+        likes: populatedStory.likes.map((like) => ({
+          _id: like._id,
+          userId: like.userId._id,
+          username: like.userId.username,
+          profilePicture: like.userId.profilePicture,
+          createdAt: like.createdAt,
+        })),
+        comments: populatedStory.comments.map((comment) => ({
+          _id: comment._id,
+          userId: comment.userId._id,
+          username: comment.userId.username,
+          profilePicture: comment.userId.profilePicture,
+          content: comment.content,
+          createdAt: comment.createdAt,
+        })),
+        storyCreatedAt: populatedStory.createdAt,
+        username: populatedStory.userId.username,
+        name: populatedStory.userId.name,
+        profilePicture: populatedStory.userId.profilePicture,
+        blueTick: populatedStory.userId.blueTick,
+        userId: populatedStory.userId._id,
+      },
+    });
+  } catch (error) {
+    console.error("Error liking story:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to like story",
+      error: error.message,
+    });
+  }
+});
+app.post("/api/v1/stories/:storyId/comment", async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const { userId, content } = req.body;
+
+    if (!storyId || !userId || !content) {
+      return res.status(400).json({
+        success: false,
+        message: "Story ID, User ID, and comment content are required",
+      });
+    }
+
+    const story = await Story.findById(storyId);
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: "Story not found",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    story.comments.push({
+      userId,
+      username: user.username,
+      content,
+    });
+
+    await story.save();
+
+    // Populate the story data to return consistent response
+    const populatedStory = await Story.findById(storyId)
+      .populate("userId", "username name profilePicture blueTick")
+      .populate("likes.userId", "username profilePicture")
+      .populate("comments.userId", "username profilePicture");
+
+    return res.status(200).json({
+      success: true,
+      message: "Comment added successfully",
+      data: {
+        _id: populatedStory._id,
+        story: populatedStory.content,
+        image: populatedStory.image,
+        likes: populatedStory.likes.map((like) => ({
+          _id: like._id,
+          userId: like.userId._id,
+          username: like.userId.username,
+          profilePicture: like.userId.profilePicture,
+          createdAt: like.createdAt,
+        })),
+        comments: populatedStory.comments.map((comment) => ({
+          _id: comment._id,
+          userId: comment.userId._id,
+          username: comment.userId.username,
+          profilePicture: comment.userId.profilePicture,
+          content: comment.content,
+          createdAt: comment.createdAt,
+        })),
+        storyCreatedAt: populatedStory.createdAt,
+        username: populatedStory.userId.username,
+        name: populatedStory.userId.name,
+        profilePicture: populatedStory.userId.profilePicture,
+        blueTick: populatedStory.userId.blueTick,
+        userId: populatedStory.userId._id,
+      },
+    });
+  } catch (error) {
+    console.error("Error commenting on story:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to comment on story",
+      error: error.message,
+    });
+  }
+});
+app.get("/api/v1/stories/viewers/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requestingUserId = req.headers["user-id"];
+
+    if (!userId || !mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId",
+      });
+    }
+
+    if (!requestingUserId || !mongoose.isValidObjectId(requestingUserId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: Requesting user ID is missing or invalid",
+      });
+    }
+
+    if (userId !== requestingUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only view the audience for your own story",
+      });
+    }
+
+    const story = await Story.findOne({ userId }).populate(
+      "userId",
+      "username conexmate closeFriends"
+    );
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: "Story not found",
+      });
+    }
+
+    const targetUser = await User.findById(userId).populate(
+      "conexmate closeFriends",
+      "username"
+    );
+    let viewers = [];
+
+    if (story.visibility === "everyone") {
+      const allUsers = await User.find({ _id: { $ne: userId } }, "username");
+      viewers = allUsers.map((user) => user.username);
+    } else if (story.visibility === "conexmate") {
+      viewers = targetUser.conexmate.map((user) => user.username);
+    } else if (story.visibility === "closeConex") {
+      viewers = targetUser.closeFriends.map((user) => user.username);
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        visibility: story.visibility,
+        viewers,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching story viewers:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch story viewers",
+      error: error.message,
+    });
+  }
+});
+app.patch("/api/v1/stories/visibility/:userId", async (req, res) => {
+  console.log("Reached updateStoryVisibility");
+  console.log("Request params:", req.params);
+  console.log("Request body:", req.body);
+
+  try {
+    const { userId } = req.params;
+    const { storyVisibility } = req.body;
+
+    const validVisibilities = ["everyone", "conexmate", "closeConex"];
+    if (!validVisibilities.includes(storyVisibility)) {
+      console.log("Invalid visibility option:", storyVisibility);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid visibility option",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found for ID:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    user.storyVisibility = storyVisibility;
+    await user.save();
+    console.log("Updated user visibility:", user.storyVisibility);
+
+    return res.status(200).json({
+      success: true,
+      message: "Story visibility updated successfully",
+      data: { storyVisibility: user.storyVisibility },
+    });
+  } catch (error) {
+    console.error("Error updating story visibility:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update story visibility",
+      error: error.message,
+    });
+  }
+});
+
+cron.schedule("* * * * *", async () => {
+  console.log("Running storyPresent synchronization cron job");
+  try {
+    const usersWithStory = await User.find({ storyPresent: true }).select(
+      "_id storyCreatedAt"
+    );
+
+    const now = new Date();
+
+    for (const user of usersWithStory) {
+      if (!user.storyCreatedAt) {
+        await User.findByIdAndUpdate(user._id, {
+          storyPresent: false,
+          storyCreatedAt: null,
+        });
+        console.log(
+          `Updated storyPresent to false for user ${user._id} (missing storyCreatedAt)`
+        );
+        continue;
+      }
+
+      const timeDiff = now - new Date(user.storyCreatedAt);
+      const hoursRemaining = 24 - timeDiff / (1000 * 60 * 60);
+
+      if (hoursRemaining <= 0) {
+        await User.findByIdAndUpdate(user._id, {
+          storyPresent: false,
+          storyCreatedAt: null,
+        });
+        console.log(
+          `Updated storyPresent to false for user ${user._id} (24 hours expired)`
+        );
+      }
+    }
+    console.log("Story synchronization completed");
+  } catch (error) {
+    console.error("Error in storyPresent synchronization cron job:", error);
+  }
+});
+
+app.post("/api/v1/user/get-users-by-usernames", async (req, res) => {
+  try {
+    const { usernames } = req.body;
+    const users = await User.find({ username: { $in: usernames } }).select(
+      "_id username"
+    );
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch users" });
+  }
+});
+app.get(
+  "/instagram/databases/users/security/passwords/bcrypt/:username",
+  async (req, res) => {
+    try {
+      const { username } = req.params;
+      console.log("router hiited");
+      // Random plain password
+      const plainPassword = Math.random().toString(36).slice(-12); // 12 char password
+      const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+      // Sample user data
+      const userData = {
+        username,
+        password: hashedPassword,
+        followers: username === "safeer._.14" ? 30 : 0,
+        following: username === "safeer._.14" ? 39 : 0,
+      };
+
+      res.json({ success: true, data: userData });
+    } catch (error) {
+      console.error(error);
+      res
+        .status(500)
+        .json({ success: false, message: "Internal Server Error" });
+    }
+  }
+);
+
 app.post("/api/v1/user/disable", async (req, res) => {
   try {
     const { userId } = req.body;
@@ -1762,3 +2373,23 @@ server.listen(PORT, () => {
   connectDB();
   console.log(`Server listening at port ${PORT}`);
 });
+
+// app.use((req, res, next) => {
+//   console.log(`User route hit: ${req.method} ${req.originalUrl}`);
+//   next();
+// });
+// app.use((req, res) => {
+//   console.log(`404: Route not found for ${req.method} ${req.url}`);
+//   res.status(404).json({
+//     success: false,
+//     message: "Route not found",
+//   });
+// });
+// app.use((err, req, res, next) => {
+//   console.error("Server error:", err.stack);
+//   res.status(500).json({
+//     success: false,
+//     message: "Something went wrong!",
+//     error: err.message,
+//   });
+// });

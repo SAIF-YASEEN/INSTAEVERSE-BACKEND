@@ -8,10 +8,7 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     profilePicture: { type: String, default: "/defaultAvatar/img1.png" },
     bio: { type: String, default: "", trim: true },
-    gender: {
-      type: String,
-      enum: ["male", "female", "other"],
-    },
+    gender: { type: String, enum: ["male", "female", "other"] },
     dob: { type: Date },
     city: { type: String, trim: true },
     country: { type: String, trim: true },
@@ -34,16 +31,10 @@ const userSchema = new mongoose.Schema(
       },
     ],
     chatUsers: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        default: [],
-      },
+      { type: mongoose.Schema.Types.ObjectId, ref: "User", default: [] },
     ],
     isDisabled: { type: Boolean, default: false },
-    profession: {
-      type: String,
-    },
+    profession: { type: String },
     disabledAt: { type: Date },
     feed: { type: [String], default: [] },
     activityStatus: { type: Boolean, default: true },
@@ -59,9 +50,13 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     chatTabs: { type: Boolean, default: true },
-    note: { type: String, maxlength: 280, default: "" },
-    noteCreatedAt: { type: Date },
-    notePresent: { type: Boolean, default: false },
+    storyVisibility: {
+      type: String,
+      enum: ["everyone", "conexmate", "closeConex"],
+      default: "conexmate",
+    },
+    storyPresent: { type: Boolean, default: false },
+    storyCreatedAt: { type: Date },
     reports: [
       {
         reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -71,15 +66,6 @@ const userSchema = new mongoose.Schema(
     ],
   },
   { timestamps: true }
-);
-
-// Add TTL index to expire notes after 24 hours
-userSchema.index(
-  { noteCreatedAt: 1 },
-  {
-    expireAfterSeconds: 24 * 60 * 60, // 24 hours
-    partialFilterExpression: { notePresent: true },
-  }
 );
 
 export const User = mongoose.model("User", userSchema);
