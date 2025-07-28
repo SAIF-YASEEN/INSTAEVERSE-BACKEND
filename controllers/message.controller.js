@@ -2,15 +2,13 @@ import { Conversation } from "../models/conversation.model.js";
 import { Message } from "../models/message.model.js";
 import { getReceiverSocketId, io } from "../socket/socket.js";
 import { User } from "../models/user.model.js";
-import cloudinary from "../utils/cloudinary.js"
-
-
+import cloudinary from "../utils/cloudinary.js";
 
 export const sendMessage = async (req, res) => {
   try {
     const senderId = req.id; // From auth middleware
     const receiverId = req.params.id; // From URL params
-    const { message, image, postId } = req.body; // Added postId
+    const { message, image, postId, storyId, mediaUrl, mediaType } = req.body; // Add storyId, mediaUrl, mediaType
 
     // Validate sender and receiver
     if (!senderId || !receiverId) {
@@ -42,7 +40,7 @@ export const sendMessage = async (req, res) => {
       newMessage = await Message.create({
         senderId,
         receiverId,
-        message: message?.trim() || null, // Allow empty text if image is present
+        message: message?.trim() || null,
         image: imageUrl,
         messageType: "image",
       });
@@ -62,8 +60,25 @@ export const sendMessage = async (req, res) => {
         senderId,
         receiverId,
         message: postMessage,
-        postId, // Store postId for rendering
+        postId,
         messageType: "post",
+      });
+    } else if (storyId) {
+      // Handle story sharing
+      if (!mediaUrl || !mediaType || !["image", "video"].includes(mediaType)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Story ID, media URL, and valid media type (image or video) are required.",
+        });
+      }
+      newMessage = await Message.create({
+        senderId,
+        receiverId,
+        message: message?.trim() || `Shared a story: ${storyId}`,
+        storyId,
+        [mediaType]: mediaUrl, // Store mediaUrl in image or video field
+        messageType: "story",
       });
     } else {
       // Handle text messages
@@ -107,10 +122,17 @@ export const sendMessage = async (req, res) => {
     // Prepare message response
     const messageWithDetails = {
       ...newMessage._doc,
+      senderId: {
+        _id: senderId,
+        username: senderUsername,
+        avatar: senderAvatar,
+      },
       senderUsername,
       senderAvatar,
-      image: imageUrl || null,
+      image: newMessage.image || null,
+      video: newMessage.video || null,
       postId: newMessage.postId || null,
+      storyId: newMessage.storyId || null,
     };
 
     // Emit to Socket.IO
@@ -136,12 +158,13 @@ export const sendMessage = async (req, res) => {
     });
   }
 };
+
+// Keep getMessage and deleteMessage as they are
 export const getMessage = async (req, res) => {
   try {
     const senderId = req.id;
     const receiverId = req.params.id;
 
-    // Validate IDs
     if (!senderId || !receiverId) {
       return res.status(400).json({
         success: false,
@@ -164,14 +187,12 @@ export const getMessage = async (req, res) => {
       _id: { $in: conversation.messages },
     })
       .populate("senderId", "username avatar")
-      .lean(); // Use lean for better performance
+      .lean();
 
-    // Enhance messages with sender details
     const enhancedMessages = messages.map((msg) => ({
       ...msg,
       senderUsername: msg.senderId?.username || "Unknown",
-      senderAvatar:
-        msg.senderId?.avatar || "https://via.placeholder.com/40",
+      senderAvatar: msg.senderId?.avatar || "https://via.placeholder.com/40",
     }));
 
     return res.status(200).json({
@@ -186,6 +207,7 @@ export const getMessage = async (req, res) => {
     });
   }
 };
+
 export const deleteMessage = async (req, res) => {
   try {
     const messageId = req.params.messageId;
@@ -244,4 +266,3 @@ export const deleteMessage = async (req, res) => {
     });
   }
 };
-
