@@ -50,10 +50,11 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     chatTabs: { type: Boolean, default: true },
-    storyVisibility: {
+   
+    storyView: {
       type: String,
-      enum: ["everyone", "conexmate", "closeConex"],
-      default: "conexmate",
+      enum: ["default", "closeconex", "conexmate"],
+      default: "default",
     },
     storyPresent: { type: Boolean, default: false },
     storyCreatedAt: { type: Date },

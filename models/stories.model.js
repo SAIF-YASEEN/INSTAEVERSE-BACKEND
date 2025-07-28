@@ -16,10 +16,9 @@ const storySchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    visibility: {
+    video: {
       type: String,
-      enum: ["everyone", "conexmate", "closeConex"],
-      default: "conexmate",
+      default: "", // Add video field
     },
     likes: [
       {

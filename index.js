@@ -39,17 +39,29 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 const storage = multer.memoryStorage();
+
+const fileFilter = (req, file, cb) => {
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "video/mp4",
+    "video/webm",
+    "video/ogg",
+  ];
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only images and videos are allowed"), false);
+  }
+};
+
 const upload = multer({
   storage,
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only images are allowed"), false);
-    }
-  },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter,
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
+
 cloudinary.config({
   cloud_name: "dxjsianea",
   api_key: "186871492126217",
@@ -116,22 +128,80 @@ app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
 
-app.post("/api/v1/stories", upload.single("image"), async (req, res) => {
+app.get("/api/v1/users/story-settings", async (req, res) => {
+  try {
+    console.log("GET /story-settings route hit");
+    const userId = req.query.userId || req.body.userId;
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
+    }
+    const user = await User.findById(userId).select("storyView");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res
+      .status(200)
+      .json({ success: true, storyView: user.storyView || "default" });
+  } catch (error) {
+    console.error("Error fetching story settings:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+app.post("/api/v1/users/story-settings", async (req, res) => {
+  const { storyView, userId } = req.body;
+  const validOptions = ["default", "closeconex", "conexmate"];
+  console.log("POST /story-settings route hit");
+
+  if (!userId) {
+    return res
+      .status(400)
+      .json({ success: false, message: "User ID is required" });
+  }
+  if (!validOptions.includes(storyView)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid story view option" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    user.storyView = storyView;
+    await user.save();
+
+    res.status(200).json({ success: true, message: "Story settings updated" });
+  } catch (error) {
+    console.error("Error updating story settings:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+// Create or update a story (supports images and videos)
+app.post("/api/v1/stories", upload.single("media"), async (req, res) => {
   console.log("Reached createStory");
   console.log("Request body:", req.body);
   console.log("Request file:", req.file);
 
   try {
-    const { userId, content, visibility } = req.body;
-    let image = "";
+    const { userId, content, mediaType, visibility } = req.body;
+    let mediaUrl = "";
 
     if (req.file) {
-      console.log("Uploading image to Cloudinary:", req.file.originalname);
+      console.log("Uploading media to Cloudinary:", req.file.originalname);
+      const resourceType = mediaType === "video" ? "video" : "image";
       const result = await new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           {
             folder: "stories",
-            resource_type: "image",
+            resource_type: resourceType,
           },
           (error, result) => {
             if (error) {
@@ -145,16 +215,16 @@ app.post("/api/v1/stories", upload.single("image"), async (req, res) => {
         );
         stream.end(req.file.buffer);
       });
-      image = result.secure_url || "";
+      mediaUrl = result.secure_url || "";
     } else {
-      console.log("No image file provided");
+      console.log("No media file provided");
     }
 
-    if (!userId || (!content && !image)) {
-      console.log("Validation failed: Missing userId or content/image");
+    if (!userId || (!content && !mediaUrl)) {
+      console.log("Validation failed: Missing userId or content/media");
       return res.status(400).json({
         success: false,
-        message: "User ID and either content or image are required",
+        message: "User ID and either content or media are required",
       });
     }
 
@@ -180,7 +250,7 @@ app.post("/api/v1/stories", upload.single("image"), async (req, res) => {
     const story = new Story({
       userId,
       content,
-      image,
+      [mediaType === "video" ? "video" : "image"]: mediaUrl,
       visibility: visibility || "conexmate",
     });
 
@@ -208,7 +278,7 @@ app.post("/api/v1/stories", upload.single("image"), async (req, res) => {
 });
 app.delete("/api/v1/stories/delete-story", async (req, res) => {
   try {
-    console.log("delete story route hitted");
+    console.log("delete story route hit");
     const { userId } = req.body;
 
     if (!userId) {
@@ -226,9 +296,15 @@ app.delete("/api/v1/stories/delete-story", async (req, res) => {
       });
     }
 
-    if (story.image) {
-      const publicId = story.image.split("/").pop().split(".")[0];
-      await cloudinary.uploader.destroy(`stories/${publicId}`);
+    if (story.image || story.video) {
+      const publicId = (story.image || story.video)
+        .split("/")
+        .pop()
+        .split(".")[0];
+      const resourceType = story.video ? "video" : "image";
+      await cloudinary.uploader.destroy(`stories/${publicId}`, {
+        resource_type: resourceType,
+      });
     }
 
     await Story.deleteOne({ userId });
@@ -269,6 +345,14 @@ app.get("/api/v1/stories/user/:userId", async (req, res) => {
       });
     }
 
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
     const story = await Story.findOne({ userId })
       .populate("userId", "username name profilePicture blueTick")
       .populate("likes.userId", "username profilePicture")
@@ -290,15 +374,12 @@ app.get("/api/v1/stories/user/:userId", async (req, res) => {
       });
     }
 
-    const targetUser = await User.findById(userId);
-    const requestingUser = await User.findById(requestingUserId);
     let hasAccess = false;
-
-    if (story.visibility === "everyone") {
+    if (targetUser.storyView === "default") {
       hasAccess = true;
-    } else if (story.visibility === "conexmate") {
+    } else if (targetUser.storyView === "conexmate") {
       hasAccess = targetUser.conexmate.includes(requestingUserId);
-    } else if (story.visibility === "closeConex") {
+    } else if (targetUser.storyView === "closeconex") {
       hasAccess = targetUser.closeFriends.includes(requestingUserId);
     }
 
@@ -319,6 +400,7 @@ app.get("/api/v1/stories/user/:userId", async (req, res) => {
         _id: story._id,
         story: story.content,
         image: story.image,
+        video: story.video,
         likes: story.likes.map((like) => ({
           _id: like._id,
           userId: like.userId._id,
