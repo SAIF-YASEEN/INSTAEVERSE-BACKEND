@@ -127,7 +127,60 @@ app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
+app.get('/api/v1/stories/:storyId', async (req, res) => {
+  try {
+    const { storyId } = req.params;
 
+    // Find the story by ID
+    const story = await Story.findById(storyId)
+      .populate('userId', 'username profilePicture') // Populate userId with username and profilePicture
+      .lean();
+
+    if (!story) {
+      return res.status(404).json({
+        success: false,
+        message: 'Story not found',
+      });
+    }
+
+    // Check if the story is still active (within 24 hours)
+    const now = new Date();
+    const hoursSinceCreation = (now - new Date(story.createdAt)) / (1000 * 60 * 60);
+    if (hoursSinceCreation > 24) {
+      return res.status(410).json({
+        success: false,
+        message: 'Story has expired',
+      });
+    }
+
+    // Prepare response data
+    const responseData = {
+      _id: story._id,
+      userId: story.userId._id, // Ensure userId is included for navigation
+      username: story.userId.username,
+      profilePicture: story.userId.profilePicture,
+      image: story.image,
+      video: story.video,
+      story: story.story,
+      createdAt: story.createdAt,
+      likes: story.likes || [],
+      comments: story.comments || [],
+      storyView: story.storyView,
+      blueTick: story.userId.blueTick || false,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: responseData,
+    });
+  } catch (error) {
+    console.error('Error fetching story:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching story',
+    });
+  }
+});
 app.get("/api/v1/users/story-settings", async (req, res) => {
   try {
     console.log("GET /story-settings route hit");
