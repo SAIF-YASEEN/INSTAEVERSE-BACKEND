@@ -12,15 +12,16 @@ import {
   getUserPost,
   getDislikesOfPost,
   likePost,
-  updateFeedFromSearch,
+  getAllReels, // New controller
 } from "../controllers/post.controller.js";
 
 const router = express.Router();
 
 router
   .route("/addpost")
-  .post(isAuthenticated, upload.single("image"), addNewPost);
+  .post(isAuthenticated, upload.single("image"), addNewPost); // "image" field name is fine for both
 router.route("/all").get(isAuthenticated, getAllPost);
+router.route("/reels").get(isAuthenticated, getAllReels); // New route for reels
 router.route("/userpost/all").get(isAuthenticated, getUserPost);
 router.route("/:id/like").get(isAuthenticated, likePost);
 router.route("/:id/dislike").get(isAuthenticated, dislikePost);
@@ -28,7 +29,6 @@ router.route("/:id/comment").post(isAuthenticated, addComment);
 router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
 router.route("/delete/:id").delete(isAuthenticated, deletePost);
 router.route("/:id/bookmark").get(isAuthenticated, bookmarkPost);
-// In post.router.js
-router.route("/:id/dislikes").post(isAuthenticated, getDislikesOfPost); // Changed from .get to .postrouter.post("/update-feed", updateFeedFromSearch);
+router.route("/:id/dislikes").post(isAuthenticated, getDislikesOfPost);
 
 export default router;

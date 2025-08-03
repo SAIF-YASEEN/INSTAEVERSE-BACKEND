@@ -1,21 +1,22 @@
-import sharp from "sharp";
 import cloudinary from "../utils/cloudinary.js";
 import { Post } from "../models/post.model.js";
+import { Reel } from "../models/reels.model.js"; // Import Reel model
 import { User } from "../models/user.model.js";
 import { Comment } from "../models/comment.model.js";
 import { getReceiverSocketId, io } from "../socket/socket.js";
+import multer from "multer";
 
 export const addNewPost = async (req, res) => {
   try {
     const { caption, categories } = req.body;
-    const image = req.file;
+    const media = req.file; // Image or video file
     const authorId = req.id;
-
+    console.log("add new post hitted");
     // Validate required fields
-    if (!image) {
+    if (!media) {
       return res
         .status(400)
-        .json({ message: "Image is required", success: false });
+        .json({ message: "Image or video is required", success: false });
     }
     if (!categories) {
       return res
@@ -24,7 +25,7 @@ export const addNewPost = async (req, res) => {
     }
 
     // Parse and validate categories
-    const categoryArray = categories
+    let categoryArray = categories
       .split(",")
       .map((cat) => cat.trim())
       .filter((cat) => cat !== "");
@@ -42,58 +43,102 @@ export const addNewPost = async (req, res) => {
 
     // Validate caption length
     if (caption && caption.length > 500) {
-      return res
-        .status(400)
-        .json({
-          message: "Caption cannot exceed 500 characters",
-          success: false,
-        });
-    }
-
-    // Optimize image with sharp
-    const optimizedImageBuffer = await sharp(image.buffer)
-      .resize({
-        width: 800,
-        height: 800,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .toFormat("jpeg", { quality: 80 })
-      .toBuffer();
-
-    // Convert buffer to data URI
-    const fileUri = `data:image/jpeg;base64,${optimizedImageBuffer.toString(
-      "base64"
-    )}`;
-
-    // Upload to Cloudinary
-    const cloudResponse = await cloudinary.uploader.upload(fileUri, {
-      folder: "conexa_images",
-      resource_type: "image",
-    });
-
-    if (!cloudResponse?.secure_url) {
-      return res.status(500).json({
-        message: "Failed to upload image to Cloudinary",
+      return res.status(400).json({
+        message: "Caption cannot exceed 500 characters",
         success: false,
       });
+    }
+
+    // Determine media type (image or video)
+    const isVideo = media.mimetype.startsWith("video");
+    let mediaUrl, publicId;
+
+    if (isVideo) {
+      // For videos, upload directly to Cloudinary without sharp optimization
+      const fileUri = `data:${media.mimetype};base64,${media.buffer.toString(
+        "base64"
+      )}`;
+      const cloudResponse = await cloudinary.uploader.upload(fileUri, {
+        folder: "conexa_videos",
+        resource_type: "video",
+      });
+
+      if (!cloudResponse?.secure_url) {
+        return res.status(500).json({
+          message: "Failed to upload video to Cloudinary",
+          success: false,
+        });
+      }
+
+      mediaUrl = cloudResponse.secure_url;
+      publicId = cloudResponse.public_id;
+
+      // Add "video" tag to categories if not already present
+      if (!categoryArray.includes("video")) {
+        categoryArray.push("video");
+      }
+    } else {
+      // Optimize image with sharp
+      const optimizedImageBuffer = await sharp(media.buffer)
+        .resize({
+          width: 800,
+          height: 800,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .toFormat("jpeg", { quality: 80 })
+        .toBuffer();
+
+      // Convert buffer to data URI
+      const fileUri = `data:image/jpeg;base64,${optimizedImageBuffer.toString(
+        "base64"
+      )}`;
+
+      // Upload to Cloudinary
+      const cloudResponse = await cloudinary.uploader.upload(fileUri, {
+        folder: "conexa_images",
+        resource_type: "image",
+      });
+
+      if (!cloudResponse?.secure_url) {
+        return res.status(500).json({
+          message: "Failed to upload image to Cloudinary",
+          success: false,
+        });
+      }
+
+      mediaUrl = cloudResponse.secure_url;
+      publicId = cloudResponse.public_id;
     }
 
     // Create new post
     const post = await Post.create({
       caption: caption || "",
-      image: cloudResponse.secure_url,
-      publicId: cloudResponse.public_id,
+      image: isVideo ? undefined : mediaUrl,
+      video: isVideo ? mediaUrl : undefined,
+      type: isVideo ? "video" : "image",
+      publicId,
       author: authorId,
       categories: categoryArray,
       likes: [],
       comments: [],
     });
 
+    // If video, save to Reel collection
+    if (isVideo) {
+      await Reel.create({
+        post: post._id,
+        video: mediaUrl,
+        publicId,
+        author: authorId,
+      });
+    }
+
     // Update user's posts array
     const user = await User.findById(authorId);
     if (!user) {
       await Post.findByIdAndDelete(post._id);
+      if (isVideo) await Reel.findOneAndDelete({ post: post._id });
       return res
         .status(404)
         .json({ message: "User not found", success: false });
@@ -106,7 +151,7 @@ export const addNewPost = async (req, res) => {
 
     // Send success response
     return res.status(201).json({
-      message: "New post added successfully",
+      message: `New ${isVideo ? "video" : "image"} post added successfully`,
       post,
       success: true,
     });
@@ -124,7 +169,31 @@ export const addNewPost = async (req, res) => {
     });
   }
 };
-
+export const getAllReels = async (req, res) => {
+  try {
+    console.log("getallreels hitted");
+    const reels = await Reel.find()
+      .sort({ createdAt: -1 })
+      .populate({
+        path: "author",
+        select: "username profilePicture blueTick",
+      })
+      .populate({
+        path: "post",
+        populate: {
+          path: "author",
+          select: "username profilePicture",
+        },
+      });
+    return res.status(200).json({
+      reels,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getAllReels:", error);
+    return res.status(500).json({ message: "Server error", success: false });
+  }
+};
 
 export const getAllPost = async (req, res) => {
   try {
@@ -414,43 +483,3 @@ export const bookmarkPost = async (req, res) => {
   }
 };
 // In postController.js (append this)
-export const updateFeedFromSearch = async (req, res) => {
-  try {
-    const userId = req.id; // From auth middleware
-    const { searchTerm } = req.body;
-
-    if (!searchTerm || typeof searchTerm !== "string") {
-      return res
-        .status(400)
-        .json({ message: "Valid search term required", success: false });
-    }
-
-    // Treat the search term as a single category (no splitting)
-    const trimmedSearchTerm = searchTerm.trim().toLowerCase();
-
-    // Add to user's feed without duplicates
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $addToSet: { feed: trimmedSearchTerm } },
-      { new: true, select: "feed" } // Return updated feed
-    );
-
-    if (!updatedUser) {
-      return res
-        .status(404)
-        .json({ message: "User not found", success: false });
-    }
-
-    return res.status(200).json({
-      message: "Feed updated with search term",
-      feed: updatedUser.feed,
-      success: true,
-    });
-  } catch (error) {
-    console.error("Error in updateFeedFromSearch:", error);
-    return res.status(500).json({
-      message: "Something went wrong",
-      success: false,
-    });
-  }
-};

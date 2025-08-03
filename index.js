@@ -31,6 +31,7 @@ import { Story } from "./models/stories.model.js";
 import { schedule } from "node-cron";
 import bcrypt from "bcryptjs";
 import cron from "node-cron";
+import SearchTerm from "./models/SearchTerm.model.js";
 
 dotenv.config();
 
@@ -127,57 +128,113 @@ app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
-app.get('/api/v1/stories/:storyId', async (req, res) => {
+// Routes
+app.post("/api/v1/search", async (req, res) => {
   try {
-    const { storyId } = req.params;
-
-    // Find the story by ID
-    const story = await Story.findById(storyId)
-      .populate('userId', 'username profilePicture') // Populate userId with username and profilePicture
-      .lean();
-
-    if (!story) {
-      return res.status(404).json({
-        success: false,
-        message: 'Story not found',
-      });
+    console.log("Search route hit");
+    const { searchTerm } = req.body;
+    if (!searchTerm || searchTerm.trim() === "") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Search term is required" });
     }
 
-    // Check if the story is still active (within 24 hours)
-    const now = new Date();
-    const hoursSinceCreation = (now - new Date(story.createdAt)) / (1000 * 60 * 60);
-    if (hoursSinceCreation > 24) {
-      return res.status(410).json({
-        success: false,
-        message: 'Story has expired',
-      });
+    const term = searchTerm.trim().toLowerCase();
+    let searchDoc = await SearchTerm.findOne({ term });
+
+    if (searchDoc) {
+      searchDoc.count += 1;
+      searchDoc.lastSearched = Date.now();
+      await searchDoc.save();
+    } else {
+      searchDoc = new SearchTerm({ term });
+      await searchDoc.save();
     }
 
-    // Prepare response data
-    const responseData = {
-      _id: story._id,
-      userId: story.userId._id, // Ensure userId is included for navigation
-      username: story.userId.username,
-      profilePicture: story.userId.profilePicture,
-      image: story.image,
-      video: story.video,
-      story: story.story,
-      createdAt: story.createdAt,
-      likes: story.likes || [],
-      comments: story.comments || [],
-      storyView: story.storyView,
-      blueTick: story.userId.blueTick || false,
-    };
+    res.status(200).json({ success: true, message: "Search term saved" });
+  } catch (error) {
+    console.error("Error saving search term:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
-    res.status(200).json({
+app.get("/api/v1/search/trending", async (req, res) => {
+  try {
+    console.log("Trending searches route hit");
+    const trendingSearches = await SearchTerm.find()
+      .sort({ count: -1, lastSearched: -1 })
+      .limit(5)
+      .select("term count");
+    res.status(200).json({ success: true, trending: trendingSearches });
+  } catch (error) {
+    console.error("Error fetching trending searches:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.get("/api/v1/user/feed", async (req, res) => {
+  try {
+    const userId = req.query.userId || req.body.userId; // Get userId from query or body
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
+    }
+
+    const user = await User.findById(userId).select("feed");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({ success: true, feed: user.feed || [] });
+  } catch (error) {
+    console.error("Error fetching user feed:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+app.post("/api/v1/post/update-feed", async (req, res) => {
+  try {
+    console.log("Update feed route hit");
+    const userId = req.body.userId || req.query.userId;
+    const { searchTerm } = req.body;
+
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ message: "User ID is required", success: false });
+    }
+
+    if (!searchTerm || typeof searchTerm !== "string") {
+      return res
+        .status(400)
+        .json({ message: "Valid search term required", success: false });
+    }
+
+    const trimmedSearchTerm = searchTerm.trim().toLowerCase();
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $addToSet: { feed: trimmedSearchTerm } },
+      { new: true, select: "feed" }
+    );
+
+    if (!updatedUser) {
+      return res
+        .status(404)
+        .json({ message: "User not found", success: false });
+    }
+
+    return res.status(200).json({
+      message: "Feed updated with search term",
+      feed: updatedUser.feed,
       success: true,
-      data: responseData,
     });
   } catch (error) {
-    console.error('Error fetching story:', error);
-    res.status(500).json({
+    console.error("Error in updateFeedFromSearch:", error);
+    return res.status(500).json({
+      message: "Something went wrong",
       success: false,
-      message: 'Server error while fetching story',
     });
   }
 });
@@ -204,6 +261,7 @@ app.get("/api/v1/users/story-settings", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 app.post("/api/v1/users/story-settings", async (req, res) => {
   const { storyView, userId } = req.body;
   const validOptions = ["default", "closeconex", "conexmate"];
@@ -1467,6 +1525,7 @@ app.post("/api/v1/user/chat-user/add", async (req, res) => {
 // Fetch all users
 app.get("/all-users", async (req, res) => {
   try {
+    console.log("req agai h bhai");
     const users = await User.find({}).select(
       "_id username profilePicture activityStatus blueTick name"
     );

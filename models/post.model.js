@@ -1,12 +1,14 @@
 import mongoose from "mongoose";
 
-// In your post model file
 const postSchema = new mongoose.Schema({
   caption: { type: String, default: "" },
-  image: { type: String, required: true },
+  image: { type: String }, // Optional: For image posts
+  video: { type: String }, // Optional: For video posts
+  type: { type: String, enum: ["image", "video"], required: true }, // Distinguish post type
+  publicId: { type: String }, // Cloudinary public ID for image or video
   author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  dislikes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // Added dislikes field
+  dislikes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   comments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Comment" }],
   createdAt: { type: Date, default: Date.now },
   categories: {
