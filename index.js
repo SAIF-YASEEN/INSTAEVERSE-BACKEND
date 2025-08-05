@@ -32,7 +32,8 @@ import { schedule } from "node-cron";
 import bcrypt from "bcryptjs";
 import cron from "node-cron";
 import SearchTerm from "./models/SearchTerm.model.js";
-
+import { Reel } from "./models/reels.model.js";
+import SearchUserCount from "./models/SearchUserCount.model.js";
 dotenv.config();
 
 // Middlewares
@@ -128,6 +129,112 @@ app.use("/api/v1/user", userRoute);
 app.use("/api/v1/post", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
+
+app.post("/api/v1/search-user", async (req, res) => {
+  try {
+    console.log("postroute hitted serach user");
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // Verify user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    let searchEntry = await SearchUserCount.findOne({ user: userId });
+
+    if (searchEntry) {
+      // Increment count and update lastSearched
+      searchEntry.count += 1;
+      searchEntry.lastSearched = Date.now();
+      await searchEntry.save();
+    } else {
+      // Create new search entry
+      searchEntry = new SearchUserCount({
+        user: userId,
+        count: 1,
+        lastSearched: Date.now(),
+      });
+      await searchEntry.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User search recorded successfully",
+      data: searchEntry,
+    });
+  } catch (error) {
+    console.error("Error saving user search:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while saving user search",
+    });
+  }
+});
+app.get("/api/v1/search-user/trending", async (req, res) => {
+  try {
+    console.log("getroute hitted serach user");
+
+    const trendingUsers = await SearchUserCount.find()
+      .populate({
+        path: "user",
+        select: "username blueTick profilePicture followers posts",
+      })
+      .sort({ count: -1, lastSearched: -1 }) // Sort by count (desc) and recency
+      .limit(10); // Limit to top 10 trending users
+
+    // Map results to include followers and posts count
+    const formattedUsers = trendingUsers.map((entry) => ({
+      _id: entry.user._id,
+      username: entry.user.username,
+      blueTick: entry.user.blueTick,
+      profilePicture: entry.user.profilePicture,
+      followers: entry.user.followers.length,
+      posts: entry.user.posts.length,
+      searchCount: entry.count,
+      lastSearched: entry.lastSearched,
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: "Trending users fetched successfully",
+      trending: formattedUsers,
+    });
+  } catch (error) {
+    console.error("Error fetching trending users:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching trending users",
+    });
+  }
+});
+
+app.get("/api/v1/reel", async (req, res) => {
+  try {
+    console.log("route hitted reels getting");
+    const reels = await Reel.find().populate("post author").exec();
+    res.status(200).json({
+      success: true,
+      reels,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch reels",
+    });
+  }
+});
+
 // Routes
 app.post("/api/v1/search", async (req, res) => {
   try {
