@@ -1,0 +1,291 @@
+app.get("/api/v1/reel/:reelId/stats", async (req, res) => {
+  try {
+    const { reelId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(reelId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reel ID",
+      });
+    }
+
+    const reel = await Reel.findById(reelId)
+      .populate({
+        path: "post",
+        select: "likes dislikes comments",
+      })
+      .select("shareCount viewCount");
+
+    if (!reel) {
+      return res.status(404).json({
+        success: false,
+        message: "Reel not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        likes: reel.post?.likes?.length || 0,
+        dislikes: reel.post?.dislikes?.length || 0,
+        comments: reel.post?.comments?.length || 0,
+        shares: reel.shareCount,
+        views: reel.viewCount,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching reel stats:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching reel stats",
+    });
+  }
+});
+
+app.post("/api/v1/reel/:reelId/share", async (req, res) => {
+  try {
+    const { reelId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(reelId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reel ID",
+      });
+    }
+
+    const reel = await Reel.findById(reelId);
+    if (!reel) {
+      return res.status(404).json({
+        success: false,
+        message: "Reel not found",
+      });
+    }
+
+    const { userId } = req.body; // Now we take userId from body
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId in request body",
+      });
+    }
+
+    const hasShared = reel.shares.some((share) => share.user.equals(userId));
+    if (hasShared) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already shared this reel",
+      });
+    }
+
+    reel.shares.push({ user: userId });
+    reel.shareCount += 1; // Increment shareCount
+    await reel.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Reel shared successfully",
+      shareCount: reel.shareCount, // Return updated shareCount
+    });
+  } catch (error) {
+    console.error("Error sharing reel:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while sharing reel",
+    });
+  }
+});
+app.post("/api/v1/reel/:reelId/view", async (req, res) => {
+  try {
+    console.log("view route hitted ")
+    const { reelId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(reelId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reel ID",
+      });
+    }
+
+    const reel = await Reel.findById(reelId);
+    if (!reel) {
+      return res.status(404).json({
+        success: false,
+        message: "Reel not found",
+      });
+    }
+
+    const { userId } = req.body; // Take userId from request body
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId in request body",
+      });
+    }
+
+    const hasViewed = reel.views.some((view) => view.user.equals(userId));
+    if (hasViewed) {
+      return res.status(200).json({
+        success: true,
+        message: "View already recorded",
+        viewCount: reel.viewCount, // Return current viewCount
+      });
+    }
+
+    reel.views.push({ user: userId });
+    reel.viewCount += 1; // Increment viewCount
+    await reel.save();
+
+    res.status(200).json({
+      success: true,
+      message: "View recorded successfully",
+      viewCount: reel.viewCount, // Return updated viewCount
+    });
+  } catch (error) {
+    console.error("Error recording view:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while recording view",
+    });
+  }
+});
+app.get("/api/v1/reel/:reelId", async (req, res) => {
+  try {
+    const sort = req.query.sort === "createdAt" ? { createdAt: -1 } : {};
+    const reels = await Reel.find()
+      .sort(sort)
+      .populate({
+        path: "post",
+        populate: {
+          path: "author",
+          select: "username profilePicture blueTick",
+        },
+      })
+      .populate("author", "username profilePicture blueTick");
+    res.json({ success: true, reels });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch reels" });
+  }
+});
+app.get("/api/v1/users/:userId", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select(
+      "autoScrollReels"
+    );
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch user" });
+  }
+});
+app.get("/api/v1/reel/following/:userId", async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select("following");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    const reels = await Reel.find({ author: { $in: user.following } })
+      .populate({
+        path: "post",
+        populate: {
+          path: "author",
+          select: "username profilePicture blueTick",
+        },
+      })
+      .populate("author", "username profilePicture blueTick");
+    res.json({ success: true, reels });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch following reels" });
+  }
+});
+app.get("/api/v1/users/autoscroll", async (req, res) => {
+  try {
+    const { userId } = req.body; // Expect userId in query params
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID required" });
+    }
+    const user = await User.findById(userId).select("autoScrollReels");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res
+      .status(200)
+      .json({ success: true, autoScrollReels: user.autoScrollReels });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+app.post("/api/v1/users/autoscroll", async (req, res) => {
+  try {
+    const { userId, autoScrollReels } = req.body; // Expect userId and autoScrollReels in body
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID required" });
+    }
+    if (typeof autoScrollReels !== "boolean") {
+      return res.status(400).json({ success: false, message: "Invalid input" });
+    }
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { autoScrollReels },
+      { new: true }
+    ).select("autoScrollReels");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res
+      .status(200)
+      .json({ success: true, autoScrollReels: user.autoScrollReels });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+app.post("/api/v1/reel/:reelId/report", async (req, res) => {
+  try {
+    const { reelId } = req.params;
+    const { userId, reason } = req.body; // Expect userId and reason in body
+    if (!userId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID required" });
+    }
+    if (!reason) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Reason required" });
+    }
+    const reel = await Reel.findById(reelId);
+    if (!reel) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Reel not found" });
+    }
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    reel.reports.push({ user: userId, reason });
+    await reel.save();
+    res.status(200).json({ success: true, message: "Reel reported" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});

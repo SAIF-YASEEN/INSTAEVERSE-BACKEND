@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema(
     gender: { type: String, enum: ["male", "female", "other"] },
     dob: { type: Date },
     city: { type: String, trim: true },
+    autoScrollReels: { type: Boolean, default: false },
     country: { type: String, trim: true },
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
@@ -50,7 +51,7 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
     chatTabs: { type: Boolean, default: true },
-   
+
     storyView: {
       type: String,
       enum: ["default", "closeconex", "conexmate"],

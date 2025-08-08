@@ -32,8 +32,8 @@ import { schedule } from "node-cron";
 import bcrypt from "bcryptjs";
 import cron from "node-cron";
 import SearchTerm from "./models/SearchTerm.model.js";
-import { Reel } from "./models/reels.model.js";
 import SearchUserCount from "./models/SearchUserCount.model.js";
+import reelsRouter from "./routes/reelsRouter.js";
 dotenv.config();
 
 // Middlewares
@@ -87,6 +87,45 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.error("Multer error:", {
+      message: err.message,
+      field: err.field,
+      body: req.body,
+      file: req.file,
+      files: req.files,
+    });
+    return res.status(400).json({
+      success: false,
+      message: `Multer error: ${err.message}. Expected field 'media'`,
+      errorDetails: {
+        receivedFields: Object.keys(req.body || {}),
+        receivedFile: req.file || req.files,
+      },
+    });
+  }
+  if (err.message.includes("Cloudinary") || err.http_code) {
+    console.error("Cloudinary error:", {
+      message: err.message,
+      http_code: err.http_code,
+      requestTime: new Date().toISOString(),
+    });
+    return res.status(err.http_code || 400).json({
+      success: false,
+      message: `Cloudinary error: ${err.message}`,
+      errorDetails: {
+        requestTime: new Date().toISOString(),
+        reportedTime: err.message.match(/reported time is ([\d-:+\s]+)/)?.[1],
+      },
+    });
+  }
+  console.error("Server error:", err);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+  });
+});
 const authMiddleware = async (req, res, next) => {
   try {
     const userId = req.headers["user-id"];
@@ -126,10 +165,9 @@ io.on("connection", (socket) => {
 });
 // Routes
 app.use("/api/v1/user", userRoute);
-app.use("/api/v1/post", postRoute);
+app.use("/api/v1/posts", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
-
 app.post("/api/v1/search-user", async (req, res) => {
   try {
     console.log("postroute hitted serach user");
@@ -2673,6 +2711,7 @@ const PORT = 8000;
 server.listen(PORT, () => {
   connectDB();
   console.log(`Server listening at port ${PORT}`);
+  console.log("Server time:", new Date().toISOString());
 });
 
 // app.use((req, res, next) => {

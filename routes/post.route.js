@@ -2,33 +2,57 @@ import express from "express";
 import isAuthenticated from "../middlewares/isAuthenticated.js";
 import upload from "../middlewares/multer.js";
 import {
-  addComment,
   addNewPost,
-  bookmarkPost,
-  deletePost,
-  dislikePost,
   getAllPost,
-  getCommentsOfPost,
   getUserPost,
-  getDislikesOfPost,
   likePost,
-  getAllReels, // New controller
+  dislikePost,
+  addComment,
+  getCommentsOfPost,
+  deletePost,
+  bookmarkPost,
+  getDislikesOfPost,
+  getPostStats,
+  sharePost,
+  recordPostView,
+  getAllReels,
+  getFollowingReels,
+  getRelevantReels,
+  reportPost,
 } from "../controllers/post.controller.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
+// Post creation and management
 router
   .route("/addpost")
-  .post(isAuthenticated, upload.single("image"), addNewPost); // "image" field name is fine for both
+  .post(isAuthenticated, upload.single("media"), addNewPost);
 router.route("/all").get(isAuthenticated, getAllPost);
-router.route("/reels").get(isAuthenticated, getAllReels); // New route for reels
 router.route("/userpost/all").get(isAuthenticated, getUserPost);
+router.route("/delete/:id").delete(isAuthenticated, deletePost);
+
+// Engagement routes
 router.route("/:id/like").get(isAuthenticated, likePost);
 router.route("/:id/dislike").get(isAuthenticated, dislikePost);
-router.route("/:id/comment").post(isAuthenticated, addComment);
-router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
-router.route("/delete/:id").delete(isAuthenticated, deletePost);
 router.route("/:id/bookmark").get(isAuthenticated, bookmarkPost);
 router.route("/:id/dislikes").post(isAuthenticated, getDislikesOfPost);
+
+// Comment routes
+router.route("/:id/comment").post(isAuthenticated, addComment);
+router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
+
+// View, share, and report routes
+router.route("/stats").get(isAuthenticated, getPostStats);
+router.route("/share").post(isAuthenticated, sharePost);
+router.route("/view").post(isAuthenticated, recordPostView);
+router.route("/:id/report").post(isAuthenticated, reportPost);
+
+// Reel-specific routes
+router.route("/reels").get(isAuthenticated, getAllReels);
+router
+  .route("/reels/following/:userId")
+  .get(isAuthenticated, getFollowingReels);
+router.route("/reels/relevant").get(isAuthenticated, getRelevantReels);
 
 export default router;

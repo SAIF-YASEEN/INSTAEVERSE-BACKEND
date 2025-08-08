@@ -117,7 +117,7 @@ export const sendMessage = async (req, res) => {
     const senderAvatar =
       sender && sender.avatar
         ? sender.avatar
-        : "https://via.placeholder.com/40";
+        : "";
 
     // Prepare message response
     const messageWithDetails = {
