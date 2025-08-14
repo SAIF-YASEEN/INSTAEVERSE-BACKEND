@@ -24,16 +24,7 @@ const postSchema = new mongoose.Schema({
   categories: {
     type: [String],
     required: true,
-    validate: [
-      {
-        validator: (arr) => arr.length >= 1,
-        message: "At least one category is required",
-      },
-      {
-        validator: (arr) => arr.length <= 10,
-        message: "Maximum of 10 categories allowed",
-      },
-    ],
+   
   },
 });
 

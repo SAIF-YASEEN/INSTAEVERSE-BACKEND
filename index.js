@@ -25,7 +25,6 @@ import mongoose from "mongoose";
 import SpotifyWebApi from "spotify-web-api-node";
 import { UAParser } from "ua-parser-js";
 import { v4 as uuidv4 } from "uuid";
-import isAuthenticated from "./middlewares/isAuthenticated.js";
 import { DisabledAccount } from "./models/DisabledAccount.js";
 import { Story } from "./models/stories.model.js";
 import { schedule } from "node-cron";
@@ -34,6 +33,9 @@ import cron from "node-cron";
 import SearchTerm from "./models/SearchTerm.model.js";
 import SearchUserCount from "./models/SearchUserCount.model.js";
 import reelsRouter from "./routes/reelsRouter.js";
+import asyncHandler from "./utils/asyncHandler.js";
+import isAuthenticated from "./middlewares/isAuthenticated.js";
+import moment from "moment-timezone";
 dotenv.config();
 
 // Middlewares
@@ -168,6 +170,142 @@ app.use("/api/v1/user", userRoute);
 app.use("/api/v1/posts", postRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
+
+
+
+app.get("/api/v1/posts/postcomments/blue-ticks", async (req, res) => {
+  try {
+    const { authorIds } = req.query;
+    if (!authorIds) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No author IDs provided" });
+    }
+
+    const ids = authorIds.split(",").filter((id) => id);
+    const users = await User.find({ _id: { $in: ids } }).select("_id blueTick");
+
+    const blueTicks = users.reduce((acc, user) => {
+      acc[user._id] = !!user.blueTick;
+      return acc;
+    }, {});
+
+    res.status(200).json({ success: true, blueTicks });
+  } catch (error) {
+    console.error("Error fetching blue ticks:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+app.get("/api/v1/posts/comment/all", async (req, res) => {
+  try {
+    const { postId } = req.query; // Use query parameter instead of body for GET
+
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid or missing post ID", success: false });
+    }
+
+    const comments = await Comment.find({ post: postId }).populate(
+      "author",
+      "username profilePicture blueTick"
+    );
+
+    return res.status(200).json({
+      success: true,
+      comments: comments || [], // Return empty array if no comments
+    });
+  } catch (error) {
+    console.error("Error in getCommentsOfPost:", error);
+    return res.status(500).json({
+      message: "Server error while fetching comments",
+      success: false,
+    });
+  }
+});
+app.get("/api/v1/posts/single/:postId/:userId", async (req, res) => {
+  console.log("Route hit: GET /api/v1/posts/single/:postId/:userId");
+  try {
+    const { postId, userId } = req.params; // Use req.params instead of req.body
+    console.log("Received params:", { postId, userId });
+
+    console.log(`Fetching post: ${postId}`);
+    const post = await Post.findById(postId)
+      .populate("author", "username profilePicture blueTick")
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
+
+    if (!post) {
+      console.log("Post not found");
+      return res
+        .status(404)
+        .json({ message: "Post not found", success: false });
+    }
+
+    console.log("Post fetched successfully:", post._id);
+    return res.status(200).json({
+      message: "Post fetched successfully",
+      post,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getSinglePost:", error.message, error.stack);
+    return res.status(500).json({
+      message: "Server error while fetching post",
+      success: false,
+    });
+  }
+});
+
+app.post("/api/v1/users/autoscroll", isAuthenticated, async (req, res) => {
+  try {
+    console.log("route hitehnmfie");
+    const { autoScrollReels } = req.body;
+    const userId = "6861a875ac887ffa45c94a4e";
+    console.log(userId);
+    console.log(autoScrollReels);
+
+    // Validate autoScrollReels is a boolean
+    if (typeof autoScrollReels !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "autoScrollReels must be a boolean value",
+      });
+    }
+
+    // Update the user's autoScrollReels field
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { autoScrollReels },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Auto-scroll preference updated successfully",
+      data: {
+        autoScrollReels: updatedUser.autoScrollReels,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating auto-scroll preference:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating auto-scroll preference",
+    });
+  }
+});
+
 app.post("/api/v1/search-user", async (req, res) => {
   try {
     console.log("postroute hitted serach user");
@@ -253,22 +391,6 @@ app.get("/api/v1/search-user/trending", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error while fetching trending users",
-    });
-  }
-});
-
-app.get("/api/v1/reel", async (req, res) => {
-  try {
-    console.log("route hitted reels getting");
-    const reels = await Reel.find().populate("post author").exec();
-    res.status(200).json({
-      success: true,
-      reels,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to fetch reels",
     });
   }
 });

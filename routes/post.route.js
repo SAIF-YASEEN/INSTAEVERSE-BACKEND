@@ -20,7 +20,6 @@ import {
   getRelevantReels,
   reportPost,
 } from "../controllers/post.controller.js";
-import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -43,7 +42,7 @@ router.route("/:id/comment").post(isAuthenticated, addComment);
 router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
 
 // View, share, and report routes
-router.route("/stats").get(isAuthenticated, getPostStats);
+router.route("/:id/stats").post(isAuthenticated, getPostStats); // Changed to POST /:id/stats
 router.route("/share").post(isAuthenticated, sharePost);
 router.route("/view").post(isAuthenticated, recordPostView);
 router.route("/:id/report").post(isAuthenticated, reportPost);
