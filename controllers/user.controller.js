@@ -217,22 +217,60 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const getProfile = asyncHandler(async (req, res) => {
   const userId = req.params.id;
-  const user = await User.findById(userId)
+  const viewerId = req.id; // Assuming isAuthenticated sets req.id
+
+  let user = await User.findById(userId)
     .select("-password")
-    .populate("posts", null, null, { sort: { createdAt: -1 } })
-    .populate("bookmarks")
+    .populate({
+      path: "posts",
+      populate: {
+        path: "author",
+        select: "username profilePicture blueTick",
+      },
+      options: { sort: { createdAt: -1 } },
+    })
+    .populate({
+      path: "bookmarks",
+      populate: {
+        path: "author",
+        select: "username profilePicture blueTick",
+      },
+    })
     .populate("chatTabs")
-    .populate("followers", "username profilePicture isPrivate")
-    .populate("following", "username profilePicture isPrivate")
-    .populate("conexmate", "username profilePicture isPrivate");
+    .populate("followers", "username profilePicture isPrivate blueTick")
+    .populate("following", "username profilePicture isPrivate blueTick")
+    .populate("conexmate", "username profilePicture isPrivate blueTick");
+
   if (!user) {
     return res.status(404).json({
       success: false,
       message: "User not found",
     });
   }
+
+  let hasSentRequest = false;
+  let followRequests = [];
+
+  if (viewerId.toString() === userId) {
+    // Owner: populate followRequests
+    await user.populate({
+      path: "followRequests.userId",
+      select: "username profilePicture blueTick",
+    });
+    followRequests = user.followRequests;
+  } else {
+    // Non-owner: check if sent request
+    hasSentRequest = user.followRequests.some(
+      (ft) => ft.userId.toString() === viewerId.toString()
+    );
+  }
+
+  const userResponse = user.toObject();
+  userResponse.followRequests = followRequests;
+  if (hasSentRequest) userResponse.hasSentRequest = true;
+
   return res.status(200).json({
-    user,
+    user: userResponse,
     success: true,
   });
 });
@@ -349,63 +387,247 @@ export const followOrUnfollow = asyncHandler(async (req, res) => {
       },
     });
   } else {
-    // Follow
-    currentUser.following.push(targetUserId);
-    targetUser.followers.push(currentUserId);
-    const followTimestamp = new Date();
-    targetUser.followTimestamps.push({
-      userId: currentUserId,
-      timestamp: followTimestamp,
-    });
-
-    // Check for mutual follow (conexmate)
-    const isMutual = targetUser.following.includes(currentUserId);
-    if (isMutual) {
-      currentUser.conexmate = currentUser.conexmate.includes(targetUserId)
-        ? currentUser.conexmate
-        : [...currentUser.conexmate, targetUserId];
-      targetUser.conexmate = targetUser.conexmate.includes(currentUserId)
-        ? targetUser.conexmate
-        : [...targetUser.conexmate, currentUserId];
-    }
-
-    await currentUser.save();
-    await targetUser.save();
-
-    if (io) {
-      const followData = {
-        type: "follow",
+    if (targetUser.isPrivate) {
+      const requestIndex = targetUser.followRequests.findIndex(
+        (ft) => ft.userId.toString() === currentUserId
+      );
+      if (requestIndex !== -1) {
+        // Cancel request
+        targetUser.followRequests.splice(requestIndex, 1);
+        await targetUser.save();
+        return res.status(200).json({
+          success: true,
+          message: "Follow request cancelled",
+          targetUser: {
+            followRequests: targetUser.followRequests,
+          },
+        });
+      } else {
+        // Send request
+        const timestamp = new Date();
+        targetUser.followRequests.push({
+          userId: currentUserId,
+          timestamp,
+        });
+        await targetUser.save();
+        // Emit notification if needed
+        if (io) {
+          io.to(targetUserId).emit("followRequest", {
+            from: currentUser.username,
+            timestamp,
+          });
+        }
+        return res.status(200).json({
+          success: true,
+          message: "Follow request sent",
+          targetUser: {
+            followRequests: targetUser.followRequests,
+          },
+        });
+      }
+    } else {
+      // Follow public
+      const timestamp = new Date();
+      currentUser.following.push(targetUserId);
+      targetUser.followers.push(currentUserId);
+      targetUser.followTimestamps.push({
         userId: currentUserId,
-        userDetails: {
-          username: currentUser.username,
-          profilePicture:
-            currentUser.profilePicture ||
-            "https://example.com/default-avatar.jpg",
-        },
-        timestamp: followTimestamp.toISOString(),
-      };
-      io.to(targetUserId).emit("follow", followData);
-    }
+        timestamp,
+      });
 
-    return res.status(200).json({
-      success: true,
-      message: `You have followed ${targetUser.username}`,
-      currentUser: {
-        following: currentUser.following,
-        conexmate: currentUser.conexmate,
-      },
-      targetUser: {
-        followers: targetUser.followers,
-        conexmate: targetUser.conexmate,
-        followTimestamps: targetUser.followTimestamps,
-      },
+      // Check mutual
+      const isMutual = targetUser.following.includes(currentUserId);
+      if (isMutual) {
+        if (!currentUser.conexmate.includes(targetUserId)) {
+          currentUser.conexmate.push(targetUserId);
+        }
+        if (!targetUser.conexmate.includes(currentUserId)) {
+          targetUser.conexmate.push(currentUserId);
+        }
+      }
+
+      await currentUser.save();
+      await targetUser.save();
+
+      if (io) {
+        const followData = {
+          type: "follow",
+          userId: currentUserId,
+          userDetails: {
+            username: currentUser.username,
+            profilePicture:
+              currentUser.profilePicture ||
+              "https://example.com/default-avatar.jpg",
+          },
+          timestamp: timestamp.toISOString(),
+        };
+        io.to(targetUserId).emit("follow", followData);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `You have followed ${targetUser.username}`,
+        currentUser: {
+          following: currentUser.following,
+          conexmate: currentUser.conexmate,
+        },
+        targetUser: {
+          followers: targetUser.followers,
+          conexmate: targetUser.conexmate,
+          followTimestamps: targetUser.followTimestamps,
+        },
+      });
+    }
+  }
+});
+
+export const acceptFollowRequest = asyncHandler(async (req, res) => {
+  const requesterId = req.params.id;
+  const userId = req.id; // owner
+
+  const user = await User.findById(userId);
+  const requester = await User.findById(requesterId);
+
+  if (!user || !requester) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
     });
   }
+
+  const requestIndex = user.followRequests.findIndex(
+    (ft) => ft.userId.toString() === requesterId
+  );
+  if (requestIndex === -1) {
+    return res.status(400).json({
+      success: false,
+      message: "No follow request found",
+    });
+  }
+
+  const timestamp = user.followRequests[requestIndex].timestamp;
+
+  // Remove from requests
+  user.followRequests.splice(requestIndex, 1);
+
+  // Add to followers
+  user.followers.push(requesterId);
+  user.followTimestamps.push({ userId: requesterId, timestamp });
+
+  // Add to requester's following
+  requester.following.push(userId);
+
+  // Check mutual for conexmate
+  if (user.following.includes(requesterId)) {
+    if (!user.conexmate.includes(requesterId)) {
+      user.conexmate.push(requesterId);
+    }
+    if (!requester.conexmate.includes(userId)) {
+      requester.conexmate.push(userId);
+    }
+  }
+
+  await user.save();
+  await requester.save();
+
+  // Emit follow notification
+  if (io) {
+    io.to(requesterId).emit("followAccepted", {
+      from: user.username,
+      timestamp,
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Follow request accepted",
+    user: {
+      followers: user.followers,
+      followTimestamps: user.followTimestamps,
+      conexmate: user.conexmate,
+      followRequests: user.followRequests,
+    },
+    requester: {
+      following: requester.following,
+      conexmate: requester.conexmate,
+    },
+  });
+});
+
+export const declineFollowRequest = asyncHandler(async (req, res) => {
+  const requesterId = req.params.id;
+  const userId = req.id; // owner
+
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  const requestIndex = user.followRequests.findIndex(
+    (ft) => ft.userId.toString() === requesterId
+  );
+  if (requestIndex === -1) {
+    return res.status(400).json({
+      success: false,
+      message: "No follow request found",
+    });
+  }
+
+  user.followRequests.splice(requestIndex, 1);
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Follow request declined",
+    user: {
+      followRequests: user.followRequests,
+    },
+  });
+});
+export const checkFollowRequest = asyncHandler(async (req, res) => {
+  const { userId, currentUserId } = req.body;
+  // userId = target user, currentUserId = logged-in user (sent manually in request)
+  console.log("check follow req route hitted by ", userId)
+  if (!currentUserId) {
+    res.status(401);
+    throw new Error("Current user ID is required");
+  }
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("Target user ID is required");
+  }
+
+  if (userId === currentUserId) {
+    res.status(400);
+    throw new Error("Cannot check follow request for self");
+  }
+
+  // Find the target user
+  const targetUser = await User.findById(userId).select("followRequests");
+  if (!targetUser) {
+    res.status(404);
+    throw new Error("Target user not found");
+  }
+
+  // Check if the current user ID is in the target user's followRequests
+  const hasSentRequest = targetUser.followRequests.some(
+    (request) => request.userId.toString() === currentUserId
+  );
+
+  res.status(200).json({
+    success: true,
+    hasSentRequest,
+  });
 });
 
 export const getUsersByIds = asyncHandler(async (req, res) => {
   const { userIds } = req.body;
-
+  console.log("get users by id hitted ");
   if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
     return res.status(400).json({
       success: false,
@@ -414,7 +636,7 @@ export const getUsersByIds = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find({ _id: { $in: userIds } })
-    .select("_id username profilePicture isPrivate")
+    .select("_id username profilePicture isPrivate blueTick")
     .lean();
 
   if (!users || users.length === 0) {
@@ -441,7 +663,7 @@ export const getConexmateUsers = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find({ _id: { $in: userIds } })
-    .select("_id username profilePicture isPrivate")
+    .select("_id username profilePicture isPrivate blueTick")
     .lean();
 
   if (!users || users.length === 0) {
@@ -534,7 +756,7 @@ export const getLikesOfPost = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find({ _id: { $in: post.likes } })
-    .select("_id username profilePicture isPrivate")
+    .select("_id username profilePicture isPrivate blueTick")
     .lean();
 
   return res.status(200).json({
@@ -588,35 +810,6 @@ export const updatePrivacy = asyncHandler(async (req, res) => {
   });
 });
 
-export const getUserProfile = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-
-  const user = await User.findById(id)
-    .select("-password")
-    .populate("followers", "username profilePicture isPrivate chatTabs")
-    .populate("following", "username profilePicture isPrivate")
-    .populate("conexmate", "username profilePicture isPrivate");
-
-  if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: "User not found",
-    });
-  }
-
-  const posts = await Post.find({ user: id })
-    .sort({ createdAt: -1 })
-    .populate("user", "username profilePicture");
-
-  return res.status(200).json({
-    success: true,
-    data: {
-      user,
-      posts,
-    },
-  });
-});
-
 export const addChatUser = asyncHandler(async (req, res) => {
   const { userId, targetUserId } = req.body;
 
@@ -654,11 +847,43 @@ export const addChatUser = asyncHandler(async (req, res) => {
   });
 });
 
+export const removeChatUser = asyncHandler(async (req, res) => {
+  const { targetUserId } = req.body;
+  const userId = req.id;
+
+  if (!targetUserId) {
+    return res.status(400).json({
+      success: false,
+      message: "Target user ID is required",
+    });
+  }
+
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  user.chatUsers = user.chatUsers.filter(
+    (id) => id.toString() !== targetUserId
+  );
+  await user.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "User removed from chat list",
+    chatUsers: user.chatUsers,
+  });
+});
+
 export const getChatUsers = asyncHandler(async (req, res) => {
   const userId = req.id;
 
   const user = await User.findById(userId)
-    .populate("chatUsers", "username profilePicture activityStatus")
+    .populate("chatUsers", "username profilePicture activityStatus blueTick")
     .lean();
 
   if (!user) {
@@ -671,5 +896,33 @@ export const getChatUsers = asyncHandler(async (req, res) => {
   return res.status(200).json({
     success: true,
     chatUsers: user.chatUsers,
+  });
+});
+export const getUserProfile = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const user = await User.findById(id)
+    .select("-password")
+    .populate("followers", "username profilePicture isPrivate chatTabs")
+    .populate("following", "username profilePicture isPrivate")
+    .populate("conexmate", "username profilePicture isPrivate");
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found",
+    });
+  }
+
+  const posts = await Post.find({ user: id })
+    .sort({ createdAt: -1 })
+    .populate("user", "username profilePicture");
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      user,
+      posts,
+    },
   });
 });

@@ -210,6 +210,8 @@ export const getUserPost = async (req, res) => {
 
 export const likePost = async (req, res) => {
   try {
+    console.log("post like hitted");
+
     const userId = req.id;
     const postId = req.params.id;
 
@@ -655,6 +657,7 @@ export const recordPostView = async (req, res) => {
   try {
     const { postId } = req.body;
     const { userId } = req.body;
+    console.log(postId, "is viewed by", userId);
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res
         .status(400)
@@ -814,5 +817,84 @@ export const reportPost = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Server error while reporting post", success: false });
+  }
+};
+
+export const getMaxMetrics = async (req, res) => {
+  try {
+    console.log("metrcis req reached to backend")
+    // Aggregate to find the maximum values for each metric
+    const metrics = await Post.aggregate([
+      {
+        $facet: {
+          maxViews: [
+            { $sort: { viewCount: -1 } },
+            { $limit: 1 },
+            { $project: { viewCount: 1 } },
+          ],
+          maxLikes: [
+            { $project: { likesCount: { $size: "$likes" } } },
+            { $sort: { likesCount: -1 } },
+            { $limit: 1 },
+            { $project: { likesCount: 1 } },
+          ],
+          maxDislikes: [
+            { $project: { dislikesCount: { $size: "$dislikes" } } },
+            { $sort: { dislikesCount: -1 } },
+            { $limit: 1 },
+            { $project: { dislikesCount: 1 } },
+          ],
+          maxShares: [
+            { $sort: { shareCount: -1 } },
+            { $limit: 1 },
+            { $project: { shareCount: 1 } },
+          ],
+          maxComments: [
+            { $project: { commentsCount: { $size: "$comments" } } },
+            { $sort: { commentsCount: -1 } },
+            { $limit: 1 },
+            { $project: { commentsCount: 1 } },
+          ],
+          maxReports: [
+            { $project: { reportsCount: { $size: "$reports" } } },
+            { $sort: { reportsCount: -1 } },
+            { $limit: 1 },
+            { $project: { reportsCount: 1 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          maxViews: { $arrayElemAt: ["$maxViews.viewCount", 0] },
+          maxLikes: { $arrayElemAt: ["$maxLikes.likesCount", 0] },
+          maxDislikes: { $arrayElemAt: ["$maxDislikes.dislikesCount", 0] },
+          maxShares: { $arrayElemAt: ["$maxShares.shareCount", 0] },
+          maxComments: { $arrayElemAt: ["$maxComments.commentsCount", 0] },
+          maxReports: { $arrayElemAt: ["$maxReports.reportsCount", 0] },
+        },
+      },
+    ]);
+
+    // Extract the first result from the aggregation
+    const maxMetrics = metrics[0] || {
+      maxViews: 0,
+      maxLikes: 0,
+      maxDislikes: 0,
+      maxShares: 0,
+      maxComments: 0,
+      maxReports: 0,
+    };
+
+    return res.status(200).json({
+      message: "Max metrics fetched successfully",
+      maxMetrics,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getMaxMetrics:", error);
+    return res.status(500).json({
+      message: "Server error while fetching max metrics",
+      success: false,
+    });
   }
 };

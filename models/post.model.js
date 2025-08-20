@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const postSchema = new mongoose.Schema({
-  caption: { type: String, default: "" },
+  caption: { type: String, default: "" }, 
   media: { type: String }, // Optional: Kept for backward compatibility
   image: { type: String }, // Field for image URL
   video: { type: String }, // Field for video URL

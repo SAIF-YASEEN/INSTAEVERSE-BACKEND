@@ -19,6 +19,7 @@ import Reaction from "./models/Reaction.js";
 import { getUserProfile } from "./controllers/user.controller.js";
 import { fixFeed } from "./utils/db.js";
 import { v2 as cloudinary } from "cloudinary";
+import exploreRoute from "./routes/explore.route.js";
 import multer from "multer";
 import ogs from "open-graph-scraper";
 import mongoose from "mongoose";
@@ -168,10 +169,9 @@ io.on("connection", (socket) => {
 // Routes
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/posts", postRoute);
+app.use("/api/v1/explore", exploreRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
-
-
 
 app.get("/api/v1/posts/postcomments/blue-ticks", async (req, res) => {
   try {
@@ -394,8 +394,6 @@ app.get("/api/v1/search-user/trending", async (req, res) => {
     });
   }
 });
-
-// Routes
 app.post("/api/v1/search", async (req, res) => {
   try {
     console.log("Search route hit");
@@ -438,10 +436,10 @@ app.get("/api/v1/search/trending", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 app.get("/api/v1/user/feed", async (req, res) => {
   try {
-    const userId = req.query.userId || req.body.userId; // Get userId from query or body
+    const userId = req.query; // Get userId from query or body
+    console.log("user-feed route hitted by", userId);
     if (!userId) {
       return res
         .status(400)
@@ -505,6 +503,7 @@ app.post("/api/v1/post/update-feed", async (req, res) => {
     });
   }
 });
+
 app.get("/api/v1/users/story-settings", async (req, res) => {
   try {
     console.log("GET /story-settings route hit");

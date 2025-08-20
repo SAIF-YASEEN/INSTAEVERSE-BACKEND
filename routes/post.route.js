@@ -8,6 +8,7 @@ import {
   likePost,
   dislikePost,
   addComment,
+  getMaxMetrics,
   getCommentsOfPost,
   deletePost,
   bookmarkPost,
@@ -53,5 +54,5 @@ router
   .route("/reels/following/:userId")
   .get(isAuthenticated, getFollowingReels);
 router.route("/reels/relevant").get(isAuthenticated, getRelevantReels);
-
+router.route("/max-metrics").get(isAuthenticated, getMaxMetrics);
 export default router;

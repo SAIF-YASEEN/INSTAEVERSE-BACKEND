@@ -31,6 +31,12 @@ const userSchema = new mongoose.Schema(
         timestamp: { type: Date, default: Date.now },
       },
     ],
+    followRequests: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
     chatUsers: [
       { type: mongoose.Schema.Types.ObjectId, ref: "User", default: [] },
     ],
