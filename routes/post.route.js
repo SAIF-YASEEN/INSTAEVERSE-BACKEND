@@ -17,7 +17,9 @@ import {
   sharePost,
   recordPostView,
   getAllReels,
+  getFriendsReels,
   getFollowingReels,
+  getLikesOfPost,
   getRelevantReels,
   reportPost,
 } from "../controllers/post.controller.js";
@@ -28,22 +30,30 @@ const router = express.Router();
 router
   .route("/addpost")
   .post(isAuthenticated, upload.single("media"), addNewPost);
-router.route("/all").get(isAuthenticated, getAllPost);
-router.route("/userpost/all").get(isAuthenticated, getUserPost);
+// router.route("/all").get(isAuthenticated, getAllPost);
+// router.route("/userpost/all").get(isAuthenticated, getUserPost);
+router.route("/reels").get(isAuthenticated, getAllReels);
+router
+  .route("/reels/following/:userId")
+  .get(isAuthenticated, getFollowingReels);
+router.route("/reels/friends/:userId").get(isAuthenticated, getFriendsReels);
 router.route("/delete/:id").delete(isAuthenticated, deletePost);
 
 // Engagement routes
-router.route("/:id/like").get(isAuthenticated, likePost);
-router.route("/:id/dislike").get(isAuthenticated, dislikePost);
+router.route("/:id/like").post(isAuthenticated, likePost);
+router.route("/getlikesofpost/:postId").get(isAuthenticated, getLikesOfPost);
+router.route("/:id/dislike").post(isAuthenticated, dislikePost);
+router
+  .route("/getdislikesofpost/:postId")
+  .get(isAuthenticated, getDislikesOfPost);
 router.route("/:id/bookmark").get(isAuthenticated, bookmarkPost);
-router.route("/:id/dislikes").post(isAuthenticated, getDislikesOfPost);
 
 // Comment routes
 router.route("/:id/comment").post(isAuthenticated, addComment);
 router.route("/:id/comment/all").post(isAuthenticated, getCommentsOfPost);
 
 // View, share, and report routes
-router.route("/:id/stats").post(isAuthenticated, getPostStats); // Changed to POST /:id/stats
+router.route("/:id/stats").post(isAuthenticated, getPostStats);
 router.route("/share").post(isAuthenticated, sharePost);
 router.route("/view").post(isAuthenticated, recordPostView);
 router.route("/:id/report").post(isAuthenticated, reportPost);
@@ -55,4 +65,5 @@ router
   .get(isAuthenticated, getFollowingReels);
 router.route("/reels/relevant").get(isAuthenticated, getRelevantReels);
 router.route("/max-metrics").get(isAuthenticated, getMaxMetrics);
+
 export default router;

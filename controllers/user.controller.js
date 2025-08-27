@@ -627,7 +627,6 @@ export const checkFollowRequest = asyncHandler(async (req, res) => {
 
 export const getUsersByIds = asyncHandler(async (req, res) => {
   const { userIds } = req.body;
-  console.log("get users by id hitted ");
   if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
     return res.status(400).json({
       success: false,
@@ -729,41 +728,7 @@ export const removeFollower = asyncHandler(async (req, res) => {
   });
 });
 
-export const getLikesOfPost = asyncHandler(async (req, res) => {
-  const { postId } = req.body;
 
-  if (!postId) {
-    return res.status(400).json({
-      success: false,
-      message: "No post ID provided",
-    });
-  }
-
-  const post = await Post.findById(postId).select("likes").lean();
-
-  if (!post) {
-    return res.status(404).json({
-      success: false,
-      message: "Post not found",
-    });
-  }
-
-  if (!post.likes || post.likes.length === 0) {
-    return res.status(200).json({
-      success: true,
-      users: [],
-    });
-  }
-
-  const users = await User.find({ _id: { $in: post.likes } })
-    .select("_id username profilePicture isPrivate blueTick")
-    .lean();
-
-  return res.status(200).json({
-    success: true,
-    users,
-  });
-});
 
 export const getUserFeed = asyncHandler(async (req, res) => {
   const userId = req.id;

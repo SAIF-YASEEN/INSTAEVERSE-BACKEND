@@ -173,6 +173,110 @@ app.use("/api/v1/explore", exploreRoute);
 app.use("/api/v1/message", messageRoute);
 app.use("/api/v1/user/chat-user", chatRoutes);
 
+app.get("/api/v1/posts/:id/like", async (req, res) => {
+  const { postId } = req.params;
+  console.log("getlikeofpost hitted");
+  if (!postId) {
+    return res.status(400).json({
+      success: false,
+      message: "No post ID provided",
+    });
+  }
+
+  const post = await Post.findById(postId).select("likes").lean();
+
+  if (!post) {
+    return res.status(404).json({
+      success: false,
+      message: "Post not found",
+    });
+  }
+
+  if (!post.likes || post.likes.length === 0) {
+    return res.status(200).json({
+      success: true,
+      users: [],
+    });
+  }
+
+  const users = await User.find({ _id: { $in: post.likes } })
+    .select("_id username profilePicture isPrivate blueTick")
+    .lean();
+
+  return res.status(200).json({
+    success: true,
+    users,
+  });
+});
+app.post("/api/v1/user/check-follow-request", async (req, res) => {
+  const { userId, currentUserId } = req.body;
+  console.log("check follow req route hitted by ", userId);
+  if (!currentUserId) {
+    res.status(401);
+    throw new Error("Current user ID is required");
+  }
+
+  if (!userId) {
+    res.status(400);
+    throw new Error("Target user ID is required");
+  }
+
+  if (userId === currentUserId) {
+    res.status(400);
+    throw new Error("Cannot check follow request for self");
+  }
+
+  // Find the target user
+  const targetUser = await User.findById(userId).select("followRequests");
+  if (!targetUser) {
+    res.status(404);
+    throw new Error("Target user not found");
+  }
+
+  // Check if the current user ID is in the target user's followRequests
+  const hasSentRequest = targetUser.followRequests.some(
+    (request) => request.userId.toString() === currentUserId
+  );
+
+  res.status(200).json({
+    success: true,
+    hasSentRequest,
+  });
+});
+app.get("/api/v1/follow-button/info-fetching/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    console.log("userid h jo frontedn ne bheji h ", userId);
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid user ID" });
+    }
+
+    // Fetch user data with relevant fields
+    const user = await User.findById(userId)
+      .select(
+        "followers following conexmate followRequests followTimestamps isPrivate"
+      )
+      .populate("followers", "_id")
+      .populate("following", "_id")
+      .populate("conexmate", "_id")
+      .populate("followRequests.userId", "_id");
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" | strings });
+    }
+
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 app.get("/api/v1/posts/postcomments/blue-ticks", async (req, res) => {
   try {
     const { authorIds } = req.query;

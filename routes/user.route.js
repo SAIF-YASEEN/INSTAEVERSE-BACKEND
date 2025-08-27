@@ -11,7 +11,6 @@ import {
   getConexmateUsers,
   removeFollower,
   getUserFeed,
-  getLikesOfPost,
   addChatUser,
   removeChatUser,
   getChatUsers,
@@ -44,17 +43,12 @@ router
   .post(isAuthenticated, declineFollowRequest);
 router.post("/get-users-by-ids", isAuthenticated, getUsersByIds);
 router.post("/get-conexmate-users", isAuthenticated, getConexmateUsers);
-router.get(
-  "/check-follow-request/:targetUserId",
-  isAuthenticated,
-  checkFollowRequest
-);
+router.get("/check-follow-request", isAuthenticated, checkFollowRequest);
 router.post("/remove-follower/:id", isAuthenticated, removeFollower);
 router.route("/feed").get(isAuthenticated, getUserFeed);
 router
   .route("/follow-notifications/:userId")
   .get(isAuthenticated, getFollowNotifications);
-router.post("/getlikesofpost", isAuthenticated, getLikesOfPost);
 router.post("/chat-user/add", isAuthenticated, addChatUser);
 router.post("/chat-user/remove", isAuthenticated, removeChatUser);
 router.get("/chat-user", isAuthenticated, getChatUsers);

@@ -147,73 +147,17 @@ export const addNewPost = async (req, res) => {
     });
   }
 };
-
-export const getAllPost = async (req, res) => {
-  try {
-    const { page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const posts = await Post.find()
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate({ path: "author", select: "username profilePicture blueTick" })
-      .populate({
-        path: "comments",
-        sort: { createdAt: -1 },
-        populate: { path: "author", select: "username profilePicture" },
-      });
-    const totalPosts = await Post.countDocuments();
-    return res.status(200).json({
-      posts,
-      totalPosts,
-      hasMore: skip + posts.length < totalPosts,
-      success: true,
-    });
-  } catch (error) {
-    console.error("Error in getAllPost:", error);
-    return res
-      .status(500)
-      .json({ message: "Server error while fetching posts", success: false });
-  }
-};
-
-export const getUserPost = async (req, res) => {
-  try {
-    const authorId = req.id;
-    const { page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const posts = await Post.find({ author: authorId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate({ path: "author", select: "username profilePicture blueTick" })
-      .populate({
-        path: "comments",
-        sort: { createdAt: -1 },
-        populate: { path: "author", select: "username profilePicture" },
-      });
-    const totalPosts = await Post.countDocuments({ author: authorId });
-    return res.status(200).json({
-      posts,
-      totalPosts,
-      hasMore: skip + posts.length < totalPosts,
-      success: true,
-    });
-  } catch (error) {
-    console.error("Error in getUserPost:", error);
-    return res.status(500).json({
-      message: "Server error while fetching user posts",
-      success: false,
-    });
-  }
-};
-
 export const likePost = async (req, res) => {
   try {
-    console.log("post like hitted");
-
+    console.log("post liked route hitted");
     const userId = req.id;
     const postId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid post ID", success: false });
+    }
 
     const post = await Post.findById(postId);
     if (!post) {
@@ -277,9 +221,10 @@ export const likePost = async (req, res) => {
       .json({ message: "Server error while liking post", success: false });
   }
 };
-
 export const dislikePost = async (req, res) => {
   try {
+    console.log("post disliked route hitted");
+
     const userId = req.id;
     const postId = req.params.id;
 
@@ -320,7 +265,8 @@ export const dislikePost = async (req, res) => {
         userId: userId,
         userDetails: {
           username: user.username,
-          profilePicture: user.profilePicture,
+          profilePicture:
+            user.profilePicture || "https://example.com/default-avatar.jpg",
         },
         postId,
         message: "Your post was disliked",
@@ -346,30 +292,132 @@ export const dislikePost = async (req, res) => {
       .json({ message: "Server error while disliking post", success: false });
   }
 };
-
-export const getDislikesOfPost = async (req, res) => {
+export const getLikesOfPost = async (req, res) => {
   try {
-    const { postId } = req.body;
+    console.log("get liked route hitted");
+
+    const { postId } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res
         .status(400)
         .json({ message: "Invalid post ID", success: false });
     }
 
-    const post = await Post.findById(postId).populate(
-      "dislikes",
-      "username profilePicture"
-    );
+    const post = await Post.findById(postId).select("likes").lean();
     if (!post) {
       return res
         .status(404)
         .json({ message: "Post not found", success: false });
     }
-    return res.status(200).json({ users: post.dislikes, success: true });
+
+    if (!post.likes || post.likes.length === 0) {
+      return res.status(200).json({ success: true, users: [] });
+    }
+
+    const users = await User.find({ _id: { $in: post.likes } })
+      .select("_id username profilePicture isPrivate blueTick")
+      .lean();
+
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error in getLikesOfPost:", error);
+    return res
+      .status(500)
+      .json({ message: "Server error while fetching likes", success: false });
+  }
+};
+export const getDislikesOfPost = async (req, res) => {
+  try {
+    console.log("get disliked route hitted");
+
+    const { postId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid post ID", success: false });
+    }
+
+    const post = await Post.findById(postId).select("dislikes").lean();
+    if (!post) {
+      return res
+        .status(404)
+        .json({ message: "Post not found", success: false });
+    }
+
+    if (!post.dislikes || post.dislikes.length === 0) {
+      return res.status(200).json({ success: true, users: [] });
+    }
+
+    const users = await User.find({ _id: { $in: post.dislikes } })
+      .select("_id username profilePicture isPrivate blueTick")
+      .lean();
+
+    return res.status(200).json({ success: true, users });
   } catch (error) {
     console.error("Error in getDislikesOfPost:", error);
     return res.status(500).json({
       message: "Server error while fetching dislikes",
+      success: false,
+    });
+  }
+};
+
+export const getAllPost = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const posts = await Post.find()
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate({ path: "author", select: "username profilePicture blueTick" })
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
+    const totalPosts = await Post.countDocuments();
+    return res.status(200).json({
+      posts,
+      totalPosts,
+      hasMore: skip + posts.length < totalPosts,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getAllPost:", error);
+    return res
+      .status(500)
+      .json({ message: "Server error while fetching posts", success: false });
+  }
+};
+export const getUserPost = async (req, res) => {
+  try {
+    const authorId = req.id;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const posts = await Post.find({ author: authorId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate({ path: "author", select: "username profilePicture blueTick" })
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
+    const totalPosts = await Post.countDocuments({ author: authorId });
+    return res.status(200).json({
+      posts,
+      totalPosts,
+      hasMore: skip + posts.length < totalPosts,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getUserPost:", error);
+    return res.status(500).json({
+      message: "Server error while fetching user posts",
       success: false,
     });
   }
@@ -459,7 +507,7 @@ export const deletePost = async (req, res) => {
   try {
     const postId = req.params.id;
     const authorId = req.id;
-
+    console.log("delete post route hitted");
     if (!mongoose.Types.ObjectId.isValid(postId)) {
       return res
         .status(400)
@@ -700,19 +748,20 @@ export const recordPostView = async (req, res) => {
 };
 export const getAllReels = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query; // Default to page 1, limit 10
-    const sort = req.query.sort === "createdAt" ? { createdAt: -1 } : {};
+    const { page = 1, limit = 10 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const posts = await Post.find({ type: "video" })
-      .sort(sort)
+    const posts = await Post.find({ type: "video" }) // Filter for video posts (reels)
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate("author", "username profilePicture blueTick");
-
+      .populate({ path: "author", select: "username profilePicture blueTick" })
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
     const totalPosts = await Post.countDocuments({ type: "video" });
-
     return res.status(200).json({
-      message: "Reels fetched successfully",
       posts,
       totalPosts,
       hasMore: skip + posts.length < totalPosts,
@@ -720,35 +769,86 @@ export const getAllReels = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getAllReels:", error);
-    return res
-      .status(500)
-      .json({ message: "Server error while fetching reels", success: false });
+    return res.status(500).json({
+      message: "Server error while fetching reels",
+      success: false,
+    });
   }
 };
-
-export const getFollowingReels = async (req, res) => {
+export const getFriendsReels = async (req, res) => {
   try {
-    const { userId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res
-        .status(400)
-        .json({ message: "Invalid user ID", success: false });
-    }
-
+    const userId = req.id;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     const user = await User.findById(userId).select("following");
     if (!user) {
       return res
         .status(404)
         .json({ message: "User not found", success: false });
     }
-
+    const posts = await Post.find({
+      type: "video",
+      likes: { $in: user.following },
+    })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate({ path: "author", select: "username profilePicture blueTick" })
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
+    const totalPosts = await Post.countDocuments({
+      type: "video",
+      likes: { $in: user.following },
+    });
+    return res.status(200).json({
+      posts,
+      totalPosts,
+      hasMore: skip + posts.length < totalPosts,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error in getFriendsReels:", error);
+    return res.status(500).json({
+      message: "Server error while fetching friends' reels",
+      success: false,
+    });
+  }
+};
+export const getFollowingReels = async (req, res) => {
+  try {
+    const userId = req.id;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const user = await User.findById(userId).select("following");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "User not found", success: false });
+    }
     const posts = await Post.find({
       type: "video",
       author: { $in: user.following },
-    }).populate("author", "username profilePicture blueTick");
+    })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate({ path: "author", select: "username profilePicture blueTick" })
+      .populate({
+        path: "comments",
+        sort: { createdAt: -1 },
+        populate: { path: "author", select: "username profilePicture" },
+      });
+    const totalPosts = await Post.countDocuments({
+      type: "video",
+      author: { $in: user.following },
+    });
     return res.status(200).json({
-      message: "Following reels fetched successfully",
       posts,
+      totalPosts,
+      hasMore: skip + posts.length < totalPosts,
       success: true,
     });
   } catch (error) {
@@ -759,7 +859,6 @@ export const getFollowingReels = async (req, res) => {
     });
   }
 };
-
 export const getRelevantReels = async (req, res) => {
   try {
     const posts = await Post.find({ type: "video" })
@@ -822,7 +921,7 @@ export const reportPost = async (req, res) => {
 
 export const getMaxMetrics = async (req, res) => {
   try {
-    console.log("metrcis req reached to backend")
+    console.log("metrcis req reached to backend");
     // Aggregate to find the maximum values for each metric
     const metrics = await Post.aggregate([
       {
